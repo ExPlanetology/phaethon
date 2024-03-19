@@ -20,7 +20,6 @@ from save_output import (
     saveMonitorOutputPandas,
 )
 from to_helios_and_back import write_fastchem_input
-from planet_spectrum import Emission_Reflection_Model
 
 # ----- startools -----#
 import star_tool.functions as startool_fn
@@ -41,60 +40,6 @@ Rearth = 6.371e6
 Rsun = 6.969e8
 Msun = 1.989e30
 Rjup = 6.9911e7
-
-
-# =============== ESTIMATE SUBSTELLAR TEMPERATURE ================#
-def calc_Temp(lavaplanet, star, use_star_spec=True):
-    """
-    Calculates the substellar & equilibrium temperature of the planet
-
-    Parameters
-    ----------
-    lavaplanet : lavaplanet class
-        contains all information about the planet
-    star : star class
-        contains all info about the star
-    use_star_spec : bool
-        (optional) use the actual stellar spectrum (if provided in "star"), otherwise blackbody
-    """
-
-    params = {
-        "R_planet": lavaplanet.R,
-        "semi_major_axis": lavaplanet.semi_major_axis,
-        "Tmap": lavaplanet.Tmap_type,
-        "R_star": star.R,
-        "T_eff": star.T_eff,
-        "distance": star.distance,
-    }
-    # if star.star_spec is not None and use_star_spec==True:
-    # params['star_spec'] = star.star_spec
-
-    E = Emission_Reflection_Model({"BB": 1}, params)
-    T_subs = E.find_Tsub()
-    T_eq = E.find_Teq()
-
-    return T_subs, T_eq
-
-
-def solve_for_d(T, lavaplanet, star, use_star_spec=True):
-    params = {
-        "R_planet": lavaplanet.R,
-        "semi_major_axis": lavaplanet.semi_major_axis,
-        "Tmap": lavaplanet.Tmap_type,
-        "R_star": star.R,
-        "T_eff": star.T_eff,
-        "distance": star.distance,
-    }
-    # if star.star_spec is not None and use_star_spec==True:
-    # params['star_spec'] = star.star_spec
-
-    E = Emission_Reflection_Model({"BB": 1}, params)
-
-    def f(d):
-        E.semi_major_axis = d
-        return E.find_Tsub() - T
-
-    return brentq(f, 0.0001 * sc.astronomical_unit, 1000 * sc.astronomical_unit)
 
 
 # =================== RUN VAPOROCK ==================#
@@ -178,10 +123,6 @@ def run_vaporize(
         )
 
     return mol_elem_frac, Ptotal, logfO2, M.cmelt
-
-
-# =================== ADDITIONAL ATMOSPHERIC GASES =====================#
-# def add_volatiles(mol_elem_frac, logfO2):
 
 
 # ======================== RUN FASTCHEM =========================#
@@ -407,7 +348,8 @@ def write_atmospecies_file(
     Parameters
     ----------
     atmo_molar_chem : set
-        contains the molar fraction of elements in the planets atmosphere, i.e. {'Si':0.34, 'O':0.56, 'Na':0.07, 'Fe':0.03}. Does not have to be normalized.
+        contains the molar fraction of elements in the planets atmosphere, 
+        i.e. {'Si':0.34, 'O':0.56, 'Na':0.07, 'Fe':0.03}. Does not have to be normalized.
     ignore_species : set
         species to ignore, i.e. {'TiO', 'Cr'}
     """
@@ -437,160 +379,13 @@ def write_atmospecies_file(
 
 
 # ==================== INPUT OBJECTS =======================#
-class Star(object):
-    def __init__(self, params: dict):
-        self.name = params.get("name", "Star").replace(" ", "")
-        self.M = params.get("M", np.nan)
-        self.R = params.get("R")
-        self.T_eff = params.get("T_eff")
-        self.distance = params.get("distance")
-        self.metallicity = params.get("metallicity", np.nan)
-
-        # derived params
-        self.logg = np.log(sc.G * self.M / (self.R**2))
-
-        # default init
-        self.file_or_BB = "blackbody"
-        self.source_file = None
-        self.star_spec = None
-
-    @property
-    def file_or_BB(self):
-        return self._file_or_BB
-
-    @file_or_BB.setter
-    def file_or_BB(self, _file_or_BB):
-        if _file_or_BB not in ["file", "blackbody"]:
-            raise ValueError(
-                '"file_or_BB" must be either "file" (for detailed stellar spectra) or "blackbody"'
-            )
-        self._file_or_BB = _file_or_BB
-
-    def calc_from_file(
-        self,
-        data_format: str,
-        source_file: str,
-        outdir: str,
-        plot_and_tweak: bool = False,
-        skiprows: int = 0,
-        R=200,
-        w_conversion_factor=1,
-        flux_conversion_factor=1,
-    ):
-        # --------- Is 'outdir' ok? ------#
-        if outdir == "":
-            outdir = "./"
-        elif outdir[-1] != "/":
-            outdir += "/"
-
-        if not os.path.isdir(outdir):
-            os.makedirs(outdir, exist_ok=True)
-
-        # ---------- star spec source file ------------#
-        if source_file is not None:
-            self.source_file = source_file
-
-        # ----------- run the HELIOS star-tool ---------#
-        startool_params = {
-            "data_format": data_format,
-            "source_file": self.source_file,
-            "name": self.name,
-            "w_conversion_factor": w_conversion_factor,
-            "flux_conversion_factor": flux_conversion_factor,
-            "temp": self.T_eff,
-            "distance_from_Earth": self.distance / sc.parsec,
-            "R_star": self.R / Rsun,
-        }
-        startool_output_file = outdir + self.name + ".h5"
-        orig_lambda, orig_flux, new_lambda, converted_flux = startool_fn.main_loop(
-            startool_params,
-            convert_to="r50_kdistr",
-            # TODO implement automatich lookup of lambdagrid for star
-            opac_file_for_lambdagrid="/home/fabian/LavaWorlds/phaethon/ktable/output/R200_0.1_200_pressurebroad/SiO_opac_ip_kdistr.h5",
-            output_file=startool_output_file,
-            plot_and_tweak="no" if not plot_and_tweak else "yes",
-            save_in_hdf5="yes",
-            skiprows=skiprows,
-        )
-
-        self.file_or_BB = "file"
-        self.path_to_h5 = startool_output_file
-        self.path_in_h5 = "r50_kdistr/ascii/" + self.name
-
-        self.orig_lambda = np.array(orig_lambda) * 1e4  # from Angstroem to micron
-        self.new_lambda = np.array(new_lambda) * 1e4
-        self.orig_flux = np.array(orig_flux) * 1e-13
-        self.new_flux = np.array(converted_flux) * 1e-13
-        self.star_spec = interp1d(
-            self.orig_lambda, self.orig_flux, bounds_error=False, fill_value=0.0
-        )
-
-    def calc_from_phoenix(
-        self,
-        outdir: str,
-        plot_and_tweak: bool = False,
-        skiprows: int = 0,
-        R=200,
-        w_conversion_factor=1,
-        flux_conversion_factor=1,
-    ):
-        # --------- Is 'outdir' ok? ------#
-        if outdir == "":
-            outdir = "./"
-        elif outdir[-1] != "/":
-            outdir += "/"
-
-        if not os.path.isdir(outdir):
-            os.makedirs(outdir, exist_ok=True)
-
-        # ----------- run the HELIOS star-tool ---------#
-        startool_params = {
-            "data_format": "phoenix",
-            "name": self.name,
-            "temp": self.T_eff,
-            "log_g": self.logg,
-            "m": self.metallicity,
-        }
-
-        startool_output_file = outdir + self.name + ".h5"
-        orig_lambda, orig_flux, new_lambda, converted_flux = startool_fn.main_loop(
-            startool_params,
-            convert_to="r50_kdistr",
-            # TODO implement automatich lookup of lambdagrid for star
-            opac_file_for_lambdagrid="/home/fabian/LavaWorlds/phaethon/ktable/output/R"
-            + str(R)
-            + "/SiO_opac_ip_kdistr.h5",
-            output_file=startool_output_file,
-            plot_and_tweak="no" if not plot_and_tweak else "yes",
-            save_in_hdf5="yes",
-            skiprows=skiprows,
-        )
-
-        self.file_or_BB = "file"
-        self.path_to_h5 = startool_output_file
-        self.path_in_h5 = "r50_kdistr/ascii/" + self.name
-
-        self.orig_lambda = np.array(orig_lambda) * 1e4  # from Angstroem to micron
-        self.new_lambda = np.array(new_lambda) * 1e4
-        self.orig_flux = np.array(orig_flux) * 1e-13
-        self.new_flux = np.array(converted_flux) * 1e-13
-        self.star_spec = interp1d(
-            self.orig_lambda, self.orig_flux, bounds_error=False, fill_value=0.0
-        )
 
 
-class Lavaplanet(object):
-    def __init__(self, params: dict):
-        self.name = params.get("name", "NoName")
-        self.M = params.get("M")
-        self.R = params.get("R")
-        self.g = sc.G * self.M / (self.R**2)
-        self.semi_major_axis = params.get("semi_major_axis")
-        self.Tmap_type = params.get("Tmap_type")
+
 
 
 # ================= RUN HELIOS ========================#
-def set_up_helios(
+def helios_setup(
     lavaplanet,
     star,
     outdir,
@@ -787,25 +582,6 @@ def write_helios(reader, keeper, computer, writer, plotter, fogger):
 
     # prints the success message - yay!
     hsfunc.success_message(keeper)
-
-
-def is_oscillating_series(series, precision):
-    """
-    Determines wherever a series of floats is pseudo-oscillating, i.e. oscillating up to precison.
-    """
-    arr = np.array(series)
-
-    odd_diff = np.diff(arr[::2])  # Differences between odd-indexed elements
-    even_diff = np.diff(arr[1::2])  # Differences between even-indexed elements
-
-    if (
-        np.all(np.abs(odd_diff) <= precision)
-        and np.all(np.abs(even_diff) <= precision)
-        and np.abs(np.sum(odd_diff) - np.sum(even_diff)) <= 2 * precision
-    ):
-        return True
-
-    return False
 
 
 def run_phaethon(

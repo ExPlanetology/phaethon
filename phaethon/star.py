@@ -3,17 +3,14 @@ Module to load and process stellar spectra
 """
 from typing import Callable
 import os
-import sys
 import numpy as np
 import astropy.units as unit
 import astropy.constants as const
 from scipy.interpolate import interp1d
 
-sys.path.append("/home/fabian/LavaWorlds/HELIOS")
 from star_tool.functions import main_loop as startool_mainloop
 
-
-class Star(object):
+class Star():
     """
     Class to store stellar parameters and load and process spectra
     """
@@ -27,7 +24,7 @@ class Star(object):
     logg: float
     file_or_blackbody: bool
     source_file: str
-    spec_fit: Callable
+    spectral_emittance_fitfunc: Callable
 
     def __init__(
         self,
@@ -39,20 +36,30 @@ class Star(object):
         metallicity: float,
     ) -> None:
         self.name = name
-        self.mass = mass * const.M_sun
-        self.radius = radius * const.R_sun
+        self.mass = mass * unit.M_sun
+        self.radius = radius * unit.R_sun
         self.t_eff = t_eff * unit.K
         self.distance = distance * unit.pc
         self.metallicity = metallicity * unit.dex
 
         # derived params
-        grav: float = const.G * self.mass / (self.radius**2)
+        grav: float = const.G * self.mass.to("kg") / (self.radius.to("m")**2)
         self.logg = np.log(grav.value)
 
         # default init
-        self.file_or_blackbody = "blackbody"
-        self.source_file = None
-        self.spec_fit = None
+        self.file_or_blackbody: str = "blackbody"
+        self.source_file: str = None
+        self.spectral_emittance_fitfunc: Callable = None
+
+        # stellar spectrum
+        self._orig_wavl: np.ndarray = np.zeros(0)
+        self._orig_spectral_emittance: np.ndarray = np.zeros(0)
+
+        self.wavl: np.ndarray = np.zeros(0)
+        self.spectral_emittance: np.ndarray = np.zeros(0)
+
+        self.path_in_h5 = "./"
+        
 
     def get_spectrum_from_file(
         self,
@@ -61,7 +68,6 @@ class Star(object):
         opac_file_for_lambdagrid: str,
         plot_and_tweak: bool = False,
         skiprows: int = 0,
-        resolution: int=200,
         w_conversion_factor=1,
         flux_conversion_factor=1,
     ):
@@ -87,7 +93,7 @@ class Star(object):
             "R_star": self.radius / const.R_sun,
         }
         startool_output_file = outdir + self.name + ".h5"
-        orig_lambda, orig_flux, new_lambda, converted_flux = startool_mainloop(
+        _orig_wavl, _orig_spectral_emittance, wavl, converted_flux = startool_mainloop(
             startool_params,
             convert_to="r50_kdistr",
             opac_file_for_lambdagrid=opac_file_for_lambdagrid,
@@ -101,12 +107,12 @@ class Star(object):
         self.path_to_h5 = startool_output_file
         self.path_in_h5 = "r50_kdistr/ascii/" + self.name
 
-        self.orig_lambda = np.array(orig_lambda) * 1e4  # from Angstroem to micron
-        self.new_lambda = np.array(new_lambda) * 1e4
-        self.orig_flux = np.array(orig_flux) * 1e-13
-        self.new_flux = np.array(converted_flux) * 1e-13
-        self.spec_fit = interp1d(
-            self.orig_lambda, self.orig_flux, bounds_error=False, fill_value=0.0
+        self._orig_wavl = np.array(_orig_wavl) * 1e4  # from Angstroem to micron
+        self.wavl = np.array(wavl) * 1e4
+        self._orig_spectral_emittance = np.array(_orig_spectral_emittance) * 1e-13
+        self.spectral_emittance = np.array(converted_flux) * 1e-13
+        self.spectral_emittance_fitfunc = interp1d(
+            self._orig_wavl, self._orig_spectral_emittance, bounds_error=False, fill_value=0.0
         )
 
     def get_phoenix_spectrum(
@@ -144,7 +150,7 @@ class Star(object):
         }
 
         startool_output_file = outdir + self.name + ".h5"
-        orig_lambda, orig_flux, new_lambda, converted_flux = startool_mainloop(
+        _orig_wavl, _orig_spectral_emittance, wavl, converted_flux = startool_mainloop(
             startool_params,
             convert_to="r50_kdistr",
             opac_file_for_lambdagrid=opac_file_for_lambdagrid,
@@ -157,35 +163,10 @@ class Star(object):
         self.path_to_h5 = startool_output_file
         self.path_in_h5 = "r50_kdistr/ascii/" + self.name
 
-        self.orig_lambda = np.array(orig_lambda) * 1e4  # from Angstroem to micron
-        self.new_lambda = np.array(new_lambda) * 1e4
-        self.orig_flux = np.array(orig_flux) * 1e-13
-        self.new_flux = np.array(converted_flux) * 1e-13
-        self.spec_fit = interp1d(
-            self.orig_lambda, self.orig_flux, bounds_error=False, fill_value=0.0
+        self._orig_wavl = np.array(_orig_wavl) * 1e4  # from Angstroem to micron
+        self.wavl = np.array(wavl) * 1e4
+        self._orig_spectral_emittance = np.array(_orig_spectral_emittance) * 1e-13
+        self.spectral_emittance = np.array(converted_flux) * 1e-13
+        self.spectral_emittance_fitfunc = interp1d(
+            self._orig_wavl, self._orig_spectral_emittance, bounds_error=False, fill_value=0.0
         )
-
-
-if __name__ == "__main__":
-    star = Star(
-        name="Phoenix",
-        mass=1.0,
-        radius=1.0,
-        t_eff=5770.0,
-        distance=10.0,
-        metallicity=0.0,
-    )
-    # star.get_phoenix_spectrum(
-    #     outdir="./",
-    #     opac_file_for_lambdagrid="/home/fabian/LavaWorlds/phaethon/ktable/output/R200_0.1_200_pressurebroad/SiO_opac_ip_kdistr.h5",
-    #     plot_and_tweak=True,
-    # )
-    star.get_spectrum_from_file(
-        outdir="output/",
-        source_file="/home/fabian/LavaWorlds/phaethon/phaethon/star_tool/sun_gueymard_2003_modified.txt",
-        opac_file_for_lambdagrid="/home/fabian/LavaWorlds/phaethon/ktable/output/R200_0.1_200_pressurebroad/SiO_opac_ip_kdistr.h5",
-        skiprows=9,
-        plot_and_tweak=False,
-        w_conversion_factor=1e-7,
-        flux_conversion_factor=1e10,
-    )

@@ -7,6 +7,11 @@ from muspell.melt import Melt
 
 
 class VapourEngine(ABC):
+
+    @abstractmethod
+    def get_info(self) -> dict:
+        ...
+
     @abstractmethod
     def set_extra_params(self, params: dict) -> None:
         ...
@@ -43,6 +48,14 @@ class PureMineralVapourMuspell(VapourEngine):
             )
         else:
             pass
+
+    def get_info(self) -> dict:
+        return {
+            "melt_mol_comp": self.melt.cmelt["mol%"].to_dict(),
+            "melt_wt_comp": self.melt.cmelt["wt%"].to_dict(),
+            "buffer": self.melt.buffer,
+            "dlogfO2": self.dlogfO2,
+        }
 
     def set_extra_params(self, params: dict) -> None:
         """Set some extra parameters"""

@@ -39,5 +39,5 @@ def test_calc_temperature_from_semimajoraxis():
         flux_conversion_factor=1e10,
     )
     
-    t_eq = planet.calc_temp(star=sunlike_star, bond_albedo=0.0, f=1.0)
+    t_eq = planet.calc_temp(star=sunlike_star, bond_albedo=0.0, dilution_factor=1.0)
     print("T_eq: ", t_eq)

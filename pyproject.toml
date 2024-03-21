@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "phaethon"
+version = "0.1.0"
+description = "Coupling magma oceans and their atmospheres"
+authors = ["Fabian L. Seidler <fabian.seidler@erdw.ethz.ch>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+astropy = "*"
+atmodeller = { git = "git@github.com:ExPlanetology/atmodeller.git", branch = "djbower/pandas" }
+muspell = { git = "git@github.com:ExPlanetology/muspell.git", branch = "djbower/main" }
+numpy = "^1.26.4"
+pandas = "^2.2.1"
+scipy = "^1.12.0"
+
+[tool.poetry.group.test.dependencies]
+pytest = "^7.4.4"

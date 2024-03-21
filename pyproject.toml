@@ -10,7 +10,7 @@ python = "^3.10"
 astropy = "*"
 atmodeller = { git = "git@github.com:ExPlanetology/atmodeller.git", branch = "djbower/pandas" }
 helios = { git = "git@github.com:ExPlanetology/HELIOS.git" }
-muspell = { git = "git@github.com:ExPlanetology/muspell.git", branch = "djbower/main" }
+muspell = { git = "git@github.com:ExPlanetology/muspell.git", branch = "djbower/phaethon" }
 numpy = "^1.26.4"
 pandas = "^2.2.1"
 scipy = "^1.12.0"

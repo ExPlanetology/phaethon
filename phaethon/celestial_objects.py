@@ -3,7 +3,7 @@ Module for managing the parameters of the (lava-)planet
 """
 import os
 from abc import ABC, abstractmethod
-from typing import Callable
+from typing import Callable, Union
 from dataclasses import dataclass
 import numpy as np
 from astropy.units.core import Unit as AstropyUnit
@@ -70,7 +70,7 @@ class Star():
 
 
     def get_info(self) -> dict:
-        _dict = self.__dict__
+        _dict = self.__dict__.copy()
         info_dict = {}
         for key, value in _dict.items():
             if isinstance(value, (AstropyUnit, AstropyQuantity)):
@@ -80,7 +80,7 @@ class Star():
             else:
                 info_dict[key] = value
 
-        return info_dict      
+        return info_dict  
 
     def get_spectrum_from_file(
         self,
@@ -254,14 +254,16 @@ class Planet:
     radius: AstropyUnit
     bond_albedo: float
     dilution_factor: float
-    grav: float = np.nan
-    temperature: float = np.nan
+    internal_temperature: Union[None, AstropyUnit]
+    grav: Union[None, AstropyUnit] = None
+    temperature: Union[None, AstropyUnit] = None
+    
 
     def __post_init__(self):
         self.grav = const.G * self.mass.to("kg") / (self.radius.to("m") ** 2)
 
     def get_info(self) -> dict:
-        info_dict = self.__dict__
+        info_dict = self.__dict__.copy()
         for key, value in info_dict.items():
             if isinstance(value, (AstropyUnit, AstropyQuantity)):
                 info_dict[key] = value.value

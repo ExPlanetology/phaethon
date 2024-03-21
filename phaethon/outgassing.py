@@ -18,7 +18,7 @@ class VapourEngine(ABC):
 
     @abstractmethod
     def equilibriate_vapour(
-        self, surface_pressure: AstropyUnit, surface_temperature: AstropyUnit
+        self, surface_temperature: AstropyUnit
     ) -> IdealGasMixture:
         ...
 
@@ -72,7 +72,7 @@ class PureMineralVapourMuspell(VapourEngine):
             self.dlogfO2 = params.get("dlogfO2")
 
     def equilibriate_vapour(
-        self, surface_pressure: AstropyUnit, surface_temperature: AstropyUnit
+        self, surface_temperature: AstropyUnit
     ) -> IdealGasMixture:
         """
         Calculates the vapour composition & pressure above the planets surface.

@@ -10,6 +10,7 @@ from phaethon.save_output import (
     saveMonitorOutput,
     saveChemistryOutputPandas,
     saveMonitorOutputPandas,
+    saveCondOutput,
 )
 
 STANDARD_FASTCHEM_GAS_EQCONST = pkg_resources.resource_filename(
@@ -106,17 +107,12 @@ class FastChemCoupler:
         )
 
         # create a FastChem object
-        if cond_mode is not "none":
-            fastchem = pyfastchem.FastChem(
-                outdir + "input_chem.dat", self.path_to_eqconst, self.verbosity_level
-            )
-        else:
-            fastchem = pyfastchem.FastChem(
-                outdir + "input_chem.dat",
-                self.path_to_eqconst,
-                self.path_to_condconst,
-                self.verbosity_level,
-            )
+        fastchem = pyfastchem.FastChem(
+            outdir + "input_chem.dat",
+            self.path_to_eqconst,
+            self.path_to_condconst,
+            self.verbosity_level,
+        )
 
         # create the input and output structures for FastChem
         input_data = pyfastchem.FastChemInput()
@@ -163,15 +159,15 @@ class FastChemCoupler:
             fastchem,
         )
 
-        if cond_mode is not "none":
-            saveCondOutput(
-                outdir + "cond_" + outfile_name,
-                temperatures,
-                pressures,
-                output_data.element_cond_degree,
-                output_data.number_densities_cond,
-                fastchem,
-                output_species=None,
-                additional_columns=None,
-                additional_columns_desc=None,
-            )
+        # if cond_mode is not "none":
+        saveCondOutput(
+            outdir + "cond_" + outfile_name,
+            temperatures,
+            pressures,
+            output_data.element_cond_degree,
+            output_data.number_densities_cond,
+            fastchem,
+            output_species=None,
+            additional_columns=None,
+            additional_columns_desc=None,
+        )

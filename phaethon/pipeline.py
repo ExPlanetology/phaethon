@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 import os
 import json
+import time
+import pkg_resources
 
 # ----- HELIOS imports -----#
 from helios import read
@@ -27,13 +29,16 @@ Rsun = 6.969e8
 Msun = 1.989e30
 Rjup = 6.9911e7
 
+STANDARD_PARAM_FILE = pkg_resources.resource_filename(
+    __name__, "data/standard_lavaplanet_params.dat"
+)
 
 # ================================================================================================
 #   CLASSES
 # ================================================================================================
 
 
-class PhaethonRunner:
+class PhaethonPipeline:
     planetary_system: PlanetarySystem
     vapour_engine: VapourEngine
     fastchem_coupler: FastChemCoupler
@@ -58,6 +63,7 @@ class PhaethonRunner:
         p_toa: float = 1e-8,
         p_grid_fastchem: np.ndarray = np.logspace(-8, 3, 100),
         t_grid_fastchem: np.ndarray = np.linspace(500, 6000, 100),
+        nlayer: int = 50,
     ) -> None:
         """
         Init the phaethon runner.
@@ -86,6 +92,9 @@ class PhaethonRunner:
             pressures=p_grid_fastchem, temperatures=t_grid_fastchem
         )
 
+        # Advanced options
+        self.nlayer = nlayer  # No. of atmospheric layers
+
     def info_dump(self) -> None:
         """Puts all info into self.outdir"""
 
@@ -101,11 +110,16 @@ class PhaethonRunner:
 
         atmo_dict = {
             "atmosphere": {
-                "species": list(self.opac_species),
+                "opac_species": list(self.opac_species),
                 "scatterers": list(self.scatterers),
                 "p_bar": self.atmo.p_total,
-                "log_p": np.log10(self.atmo.p_total),
+                "log_p": np.log10(self.atmo.p_total)
+                if not self.atmo.log_p.empty
+                else -1e90,
                 "t_boa:": self.t_boa,
+                "elem_molfrac": self.atmo.elem_molfrac.to_dict()
+                if not self.atmo.log_p.empty
+                else {},
             }
         }
         metadata.update(atmo_dict)
@@ -116,9 +130,8 @@ class PhaethonRunner:
     def run(
         self,
         t_abstol: float = 35.0,
-        standard_param_file: str = "phaethon/data/standard_lavaplanet_params.dat",
+        standard_param_file: str = STANDARD_PARAM_FILE,
     ) -> None:
-
         # Dump info initially
         self.info_dump()
 
@@ -126,7 +139,6 @@ class PhaethonRunner:
         self.t_boa = self.planetary_system.planet.temperature.value
 
         t_melt_trace = [self.t_boa]
-        t_melt_trace.append(self.t_boa)
 
         self._write_opacspecies_file()
         self._helios_setup(standard_param_file=standard_param_file)
@@ -134,6 +146,7 @@ class PhaethonRunner:
         delta_t_melt = np.inf
         try_second_loop = False
 
+        start = time.time()
         while delta_t_melt > t_abstol:
             # Vapour composition & pressure
             self._equilibriate_surface(surface_temperature=self.t_boa)
@@ -147,7 +160,7 @@ class PhaethonRunner:
                 pressures=self._p_grid_fastchem,
                 temperatures=self._t_grid_fastchem,
                 outdir=self.outdir,
-                outfile_name="chem.dat", # DO NOT CHANGE - helios searches for "chem.dat"
+                outfile_name="chem.dat",  # DO NOT CHANGE - helios searches for "chem.dat"
                 cond_mode="none",
             )
             self._reader.read_species_mixing_ratios(self._keeper)
@@ -187,8 +200,8 @@ class PhaethonRunner:
                     pressures=self._p_grid_fastchem,
                     temperatures=self._t_grid_fastchem,
                     outdir=self.outdir,
-                    outfile_name="chem.dat", # DO NOT CHANGE - helios searches for "chem.dat"
-                    cond_mode="none",
+                    outfile_name="chem.dat",  # DO NOT CHANGE - helios searches for "chem.dat"
+                    cond_mode="equilibrium",
                 )
                 self._reader.read_species_mixing_ratios(self._keeper)
 
@@ -202,20 +215,25 @@ class PhaethonRunner:
                     search_range[0] = t_boa
                 elif delta_t_melt > 0:  # melt hotter than T_BOA
                     search_range[1] = t_boa
+        end = time.time()
 
         self._write_helios_output()
         self.info_dump()
 
         # ---------- final FastChem run -----------#
-        df = pd.read_csv(self.outdir + "HELIOS_iterative/tp.dat", header=1, delim_whitespace=True)
+        df = pd.read_csv(
+            self.outdir + "HELIOS_iterative/tp.dat", header=1, delim_whitespace=True
+        )
         self.fastchem_coupler.run_fastchem(
             vapour=self.atmo,
             pressures=df["press.[10^-6bar]"].to_numpy(float) * 1e-6,
             temperatures=df["temp.[K]"].to_numpy(float),
             outdir=self.outdir,
-            outfile_name="chem_profile.dat", # DO NOT CHANGE - PhaethonResult searches for "chem_profile.dat"
-            cond_mode="none",
+            outfile_name="chem_profile.dat",  # DO NOT CHANGE - PhaethonResult searches for "chem_profile.dat"
+            cond_mode="equilibrium",
         )
+
+        print(f"\nDuration: {(end-start)/60.} min\n")
 
     # ============================================================================================
     # PRIVATE METHODS
@@ -308,6 +326,10 @@ class PhaethonRunner:
         keeper.run_type = run_type
         reader.run_type = run_type
 
+        # atmospheric layers
+        keeper.nlayer = np.int32(self.nlayer)
+        keeper.ninterface = np.int32(self.nlayer + 1)
+
         # set run type automatization
         if keeper.run_type == "iterative":
             keeper.singlewalk = np.int32(0)
@@ -390,7 +412,7 @@ class PhaethonRunner:
         )
 
         # ---------- radiation --------#
-        # keeper.f_factor = float(self.planetary_system.planet.dilution_factor)
+        keeper.f_factor = np.float64(self.planetary_system.planet.dilution_factor)
 
         self._reader = reader
         self._keeper = keeper
@@ -400,11 +422,6 @@ class PhaethonRunner:
         self._fogger = fogger
 
     def _solve_rad_trans(self):
-        # this seems necessary to make it work with subsequent iterations
-        self._keeper.delta_colmass = []
-        self._keeper.delta_col_upper = []
-        self._keeper.delta_col_lower = []
-
         hsfunc.set_up_numerical_parameters(self._keeper)
         hsfunc.construct_grid(self._keeper)
         # hsfunc.initial_temp(keeper, reader, init_T_profile) TODO: implement!
@@ -449,7 +466,6 @@ class PhaethonRunner:
         hsfunc.calc_F_ratio(self._keeper)
 
     def _write_helios_output(self):
-
         os.makedirs(self.outdir + "HELIOS_iterative", exist_ok=True)
 
         self._writer.write_colmass_mu_cp_entropy(self._keeper, self._reader)

@@ -12,7 +12,7 @@ from phaethon.celestial_objects import (
 )
 from phaethon.outgassing import PureMineralVapourMuspell
 from phaethon.fastchem_coupling import FastChemCoupler
-from phaethon.pipeline import PhaethonRunner
+from phaethon.pipeline import PhaethonPipeline
 
 star = Star(
     name="Sun",
@@ -40,7 +40,7 @@ planet = Planet(
     mass=1.0 * unit.M_earth,
     radius=1.0 * unit.R_earth,
     bond_albedo=0.0,
-    dilution_factor=1.0,
+    dilution_factor=2./3.,
     internal_temperature=0 * unit.K,
 )
 
@@ -51,26 +51,25 @@ planetary_system = PlanetarySystem(
 )
 planetary_system.set_semimajor_axis_from_pl_temp(t_planet=2500 * unit.K)
 
-vapour_engine = PureMineralVapourMuspell(buffer="IW", dlogfO2=1.5, melt_mol_comp={'SiO2':1.})
+BSE = {
+    "SiO2":45,
+    "MgO":37.8,
+    "FeO":8.05,
+    "Al2O3":4.45,
+    "CaO":3.55,
+    "Na2O":0.36,
+    "TiO2":0.201
+}
+vapour_engine = PureMineralVapourMuspell(buffer="IW", dlogfO2=4, melt_wt_comp=BSE)
 
-fastchem = FastChemCoupler()
-# p_grid, t_grid = fastchem.get_grid(pressures=np.logspace(-8, 3, 120), temperatures=np.linspace(500, 6000, 120))
-# fastchem.run_fastchem(vapour=vapour, pressures=p_grid, temperatures=t_grid, outdir="output/test", cond_mode="none")
-
-runner = PhaethonRunner(
+pipeline = PhaethonPipeline(
     planetary_system=planetary_system,
     vapour_engine=vapour_engine,
     outdir="output/test",
-    # opac_species={"Si", "SiO", "SiO2", "O", "O2"},
+    # opac_species={"Si", "SiO", "SiO2", "Mg", "MgO", "Fe", "TiO", "O", "O2"},
     opac_species={"SiO"},
     scatterers={},
     opacity_path="/home/fabian/LavaWorlds/phaethon/ktable/output/R200_0.1_200_pressurebroad/",
+    nlayer=38,
 )
-# runner.info_dump()
-# runner._equilibriate_surface(surface_temperature=runner.planetary_system.planet.temperature.value)
-# runner._write_atmospecies_file()
-# runner._helios_setup(standard_param_file="phaethon/data/standard_lavaplanet_params.dat")
-# runner._loop_helios()
-# runner._write_helios_output()
-
-runner.run()
+pipeline.run()

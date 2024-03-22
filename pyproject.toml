@@ -8,12 +8,14 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.10"
 astropy = "*"
-atmodeller = { git = "git@github.com:ExPlanetology/atmodeller.git", branch = "djbower/pandas" }
+atmodeller = { git = "git@github.com:ExPlanetology/atmodeller.git" }
 helios = { git = "git@github.com:ExPlanetology/HELIOS.git" }
 muspell = { git = "git@github.com:ExPlanetology/muspell.git", branch = "djbower/phaethon" }
 numpy = "^1.26.4"
 pandas = "^2.2.1"
 scipy = "^1.12.0"
+thermochem = { git = "https://github.com/ExPlanetology/thermochem.git" }
+molmass = "^2023.8.30"
 
 [tool.poetry.group.test.dependencies]
 pytest = "^7.4.4"

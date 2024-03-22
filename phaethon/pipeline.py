@@ -131,6 +131,7 @@ class PhaethonPipeline:
         self,
         t_abstol: float = 35.0,
         standard_param_file: str = STANDARD_PARAM_FILE,
+        cond_mode: str = "none",
     ) -> None:
         # Dump info initially
         self.info_dump()
@@ -161,7 +162,7 @@ class PhaethonPipeline:
                 temperatures=self._t_grid_fastchem,
                 outdir=self.outdir,
                 outfile_name="chem.dat",  # DO NOT CHANGE - helios searches for "chem.dat"
-                cond_mode="none",
+                cond_mode=cond_mode,
             )
             self._reader.read_species_mixing_ratios(self._keeper)
 
@@ -201,7 +202,7 @@ class PhaethonPipeline:
                     temperatures=self._t_grid_fastchem,
                     outdir=self.outdir,
                     outfile_name="chem.dat",  # DO NOT CHANGE - helios searches for "chem.dat"
-                    cond_mode="equilibrium",
+                    cond_mode=cond_mode,
                 )
                 self._reader.read_species_mixing_ratios(self._keeper)
 
@@ -230,7 +231,7 @@ class PhaethonPipeline:
             temperatures=df["temp.[K]"].to_numpy(float),
             outdir=self.outdir,
             outfile_name="chem_profile.dat",  # DO NOT CHANGE - PhaethonResult searches for "chem_profile.dat"
-            cond_mode="equilibrium",
+            cond_mode=cond_mode,
         )
 
         print(f"\nDuration: {(end-start)/60.} min\n")

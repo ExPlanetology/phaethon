@@ -313,6 +313,12 @@ class PlanetarySystem:
             * self.star.t_eff.to("K") ** 4
         ) ** (0.25)
 
+    def get_period(self) -> AstropyUnit:
+        return self.orbit.get_period(star_mass=self.star.mass)
+
+    def get_semimajor_axis(self) -> AstropyUnit:
+        return self.orbit.get_semimajor_axis(star_mass=self.star.mass)
+
     def set_semimajor_axis_from_pl_temp(self, t_planet: AstropyUnit) -> None:
         """
         Calculates the semimajor axis of the planet given its temperature.

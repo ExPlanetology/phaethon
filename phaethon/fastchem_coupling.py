@@ -63,8 +63,8 @@ class FastChemCoupler:
         pressures: np.ndarray,
         temperatures: np.ndarray,
         outdir: str,
-        cond_mode: Literal["none", "equilibrium", "rainout"],
-        outfile_name: str = "chem.dat",
+        outfile_name: str,
+        cond_mode: Literal["none", "equilibrium", "rainout"] = "none",
         monitor: bool = False,
     ):
         """

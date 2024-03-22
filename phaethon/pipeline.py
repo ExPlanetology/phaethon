@@ -56,6 +56,8 @@ class PhaethonRunner:
         opacity_path: str,
         path_to_eqconst: Union[None, str] = None,
         p_toa: float = 1e-8,
+        p_grid_fastchem: np.ndarray = np.logspace(-8, 3, 100),
+        t_grid_fastchem: np.ndarray = np.linspace(500, 6000, 100),
     ) -> None:
         """
         Init the phaethon runner.
@@ -80,6 +82,9 @@ class PhaethonRunner:
         self.atmo = IdealGasMixture({})
         self.p_toa = p_toa
         self.t_boa = self.planetary_system.planet.temperature.value
+        self._p_grid_fastchem, self._t_grid_fastchem = self.fastchem_coupler.get_grid(
+            pressures=p_grid_fastchem, temperatures=t_grid_fastchem
+        )
 
     def info_dump(self) -> None:
         """Puts all info into self.outdir"""
@@ -98,9 +103,9 @@ class PhaethonRunner:
             "atmosphere": {
                 "species": list(self.opac_species),
                 "scatterers": list(self.scatterers),
-                "p_bar":self.atmo.p_total,
-                "log_p":np.log10(self.atmo.p_total),
-                "t_boa:":self.t_boa,
+                "p_bar": self.atmo.p_total,
+                "log_p": np.log10(self.atmo.p_total),
+                "t_boa:": self.t_boa,
             }
         }
         metadata.update(atmo_dict)
@@ -108,50 +113,115 @@ class PhaethonRunner:
         with open(self.outdir + "metadata.json", "w") as metadata_file:
             json.dump(metadata, metadata_file)
 
-    # def run(self, t_init: Union[None, float] = None, T_abstol: float = 35.0, standard_param_file: str = "phaethon/data/standard_lavaplanet_params.dat") -> None:
+    def run(
+        self,
+        t_abstol: float = 35.0,
+        standard_param_file: str = "phaethon/data/standard_lavaplanet_params.dat",
+    ) -> None:
 
-    #     if t_init is not None:
-    #         self.t_boa = t_init
-    #     else:
-    #         self.planetary_system.calc_pl_temp()
-    #         self.t_boa = self.planetary_system.planet.temperature.value
+        # Dump info initially
+        self.info_dump()
 
-    #     Delta_T_melt = abs(self.t_boa - self._keeper.T_lay[keeper.nlayer])
-    #     t_boa = self._keeper.T_lay[self._keeper.nlayer]
-    #     t_melt_trace.append(t_boa)
+        self.planetary_system.calc_pl_temp()
+        self.t_boa = self.planetary_system.planet.temperature.value
 
-    #     runner._equilibriate_surface(surface_pressure=None, surface_temperature=runner.planetary_system.planet.temperature.value)
-    #     runner._write_atmospecies_file()
-    #     runner._helios_setup(standard_param_file=standard_param_file)
+        t_melt_trace = [self.t_boa]
+        t_melt_trace.append(self.t_boa)
 
-    #     try_second_loop = False
+        self._write_opacspecies_file()
+        self._helios_setup(standard_param_file=standard_param_file)
 
-    #     while Delta_T_melt > T_abstol:
-            
-    #         vapour = self.vapour_engine.equilibriate_vapour(temperature=self.t_boa)
-    #         self.fastchem_coupler.run_fastchem(vapour=vapour, pressures=p_grid_fastchem, temperatures=t_grid_fastchem, outdir=self.outdir, cond_mode="none")
+        delta_t_melt = np.inf
+        try_second_loop = False
 
-    #         self._keeper.p_boa = vapour.p_total / 1e-6
-    #         self._loop_helios()
+        while delta_t_melt > t_abstol:
+            # Vapour composition & pressure
+            self._equilibriate_surface(surface_temperature=self.t_boa)
+            assert not self.atmo.log_p.empty
+            assert self.p_toa < self.atmo.p_total
+            self._keeper.p_boa = float(self.atmo.p_total) / 1e-6
 
-    #         Delta_T_melt = abs(t_boa - self._keeper.T_lay[self._keeper.nlayer])
-    #         t_boa = self._keeper.T_lay[self._keeper.nlayer]
+            # FastChem
+            self.fastchem_coupler.run_fastchem(
+                vapour=self.atmo,
+                pressures=self._p_grid_fastchem,
+                temperatures=self._t_grid_fastchem,
+                outdir=self.outdir,
+                outfile_name="chem.dat", # DO NOT CHANGE - helios searches for "chem.dat"
+                cond_mode="none",
+            )
+            self._reader.read_species_mixing_ratios(self._keeper)
 
-    #         t_melt_trace.append(t_boa)
+            # solve radiative transfer
+            self._solve_rad_trans()
 
-    #         if (
-    #             len(t_melt_trace) >= 3
-    #             and abs(t_melt_trace[-3] - t_melt_trace[-1]) <= T_abstol
-    #         ):
-    #             print("Melt temperature series seems to be oscillating")
-    #             try_second_loop = True
-    #             break
+            delta_t_melt = abs(self.t_boa - self._keeper.T_lay[self._keeper.nlayer])
+            self.t_boa = self._keeper.T_lay[self._keeper.nlayer]
 
+            t_melt_trace.append(self.t_boa)
+
+            if (
+                len(t_melt_trace) >= 3
+                and abs(t_melt_trace[-3] - t_melt_trace[-1]) <= t_abstol
+            ):
+                print("Melt temperature series seems to be oscillating")
+                try_second_loop = True
+                break
+
+        # ----------- if oscillating, try branch-and-bound --------#
+        if try_second_loop:
+            search_range = [np.amin(t_melt_trace), np.amax(t_melt_trace)]
+
+            while abs(delta_t_melt) > t_abstol:
+                t_boa = (search_range[0] + search_range[1]) / 2.0
+
+                # Vapour composition & pressure
+                self._equilibriate_surface(surface_temperature=self.t_boa)
+                assert not self.atmo.log_p.empty
+                assert self.p_toa < self.atmo.p_total
+                self._keeper.p_boa = float(self.atmo.p_total) / 1e-6
+
+                # FastChem
+                self.fastchem_coupler.run_fastchem(
+                    vapour=self.atmo,
+                    pressures=self._p_grid_fastchem,
+                    temperatures=self._t_grid_fastchem,
+                    outdir=self.outdir,
+                    outfile_name="chem.dat", # DO NOT CHANGE - helios searches for "chem.dat"
+                    cond_mode="none",
+                )
+                self._reader.read_species_mixing_ratios(self._keeper)
+
+                # solve radiative transfer
+                self._solve_rad_trans()
+
+                delta_t_melt = abs(self.t_boa - self._keeper.T_lay[self._keeper.nlayer])
+                self.t_boa = self._keeper.T_lay[self._keeper.nlayer]
+
+                if delta_t_melt < 0:  # melt cooler than T_BOA
+                    search_range[0] = t_boa
+                elif delta_t_melt > 0:  # melt hotter than T_BOA
+                    search_range[1] = t_boa
+
+        self._write_helios_output()
+        self.info_dump()
+
+        # ---------- final FastChem run -----------#
+        df = pd.read_csv(self.outdir + "HELIOS_iterative/tp.dat", header=1, delim_whitespace=True)
+        self.fastchem_coupler.run_fastchem(
+            vapour=self.atmo,
+            pressures=df["press.[10^-6bar]"].to_numpy(float) * 1e-6,
+            temperatures=df["temp.[K]"].to_numpy(float),
+            outdir=self.outdir,
+            outfile_name="chem_profile.dat", # DO NOT CHANGE - PhaethonResult searches for "chem_profile.dat"
+            cond_mode="none",
+        )
 
     # ============================================================================================
-    # 
+    # PRIVATE METHODS
+    # ============================================================================================
 
-    def _write_atmospecies_file(self):
+    def _write_opacspecies_file(self):
         """
         Generates atmospheric species files. Necessary for HELIOS to know
         which species to include.
@@ -196,7 +266,8 @@ class PhaethonRunner:
     ) -> None:
         if extra_params is not None:
             self.vapour_engine.set_extra_params(params=extra_params)
-        self.atmo = self.vapour_engine.equilibriate_vapour(surface_temperature=surface_temperature
+        self.atmo = self.vapour_engine.equilibriate_vapour(
+            surface_temperature=surface_temperature
         )
         self.t_boa = surface_temperature
 
@@ -204,7 +275,6 @@ class PhaethonRunner:
         self,
         standard_param_file: str,
         run_type: str = "iterative",
-        p_toa: float = 1e-8,
         opacity_mixing: str = "on-the-fly",
     ) -> None:
         """
@@ -221,9 +291,6 @@ class PhaethonRunner:
         outdir : str
             directory where HELIOS Input (i.e., FastChem files) and HELIOS Output will reside
         """
-
-        assert not self.atmo.log_p.empty
-        assert self.p_toa < self.atmo.p_total
 
         reader = read.Read()
         keeper = quant.Store()
@@ -248,6 +315,7 @@ class PhaethonRunner:
             keeper.energy_correction = np.int32(1)
             keeper.name = "HELIOS_iterative"
 
+        # TODO: implement proper treatment of p-T-profile. Also, assert that iterative has been run.
         elif keeper.run_type == "post-processing":
             keeper.singlewalk = np.int32(1)
             keeper.iso = np.int32(1)
@@ -268,7 +336,6 @@ class PhaethonRunner:
         reader.opacity_path = self.opacity_path
 
         # pass pressure, convert to weird HELIOS units (10⁻⁶ bar)
-        keeper.p_boa = self.atmo.p_total / 1e-6
         keeper.p_toa = self.p_toa / 1e-6
 
         # path to FastChem results
@@ -283,7 +350,6 @@ class PhaethonRunner:
             reader.read_species_file(keeper)
             reader.read_species_opacities(keeper)
             reader.read_species_scat_cross_sections(keeper)
-            reader.read_species_mixing_ratios(keeper)
         else:
             raise NotImplementedError
 
@@ -304,15 +370,27 @@ class PhaethonRunner:
         # ----------- planetary & orbital parameters --------#
         # read planetary params (for code stability only), modify them and turn them to cgs
         # hsfunc.planet_param(keeper, reader)
-        keeper.g = keeper.fl_prec(self.planetary_system.planet.grav.to('cm / s^2').value)
-        keeper.a = keeper.fl_prec(self.planetary_system.orbit.get_semimajor_axis(self.planetary_system.star.mass).to('cm').value)
-        keeper.R_planet = keeper.fl_prec(self.planetary_system.planet.radius.to('cm').value)
-        keeper.R_star = keeper.fl_prec(self.planetary_system.star.radius.to('cm').value)
-        keeper.T_star = keeper.fl_prec(self.planetary_system.star.t_eff.to('K').value)
-        keeper.T_intern = float(self.planetary_system.planet.internal_temperature.to('K').value)
+        keeper.g = keeper.fl_prec(
+            self.planetary_system.planet.grav.to("cm / s^2").value
+        )
+        keeper.a = keeper.fl_prec(
+            self.planetary_system.orbit.get_semimajor_axis(
+                self.planetary_system.star.mass
+            )
+            .to("cm")
+            .value
+        )
+        keeper.R_planet = keeper.fl_prec(
+            self.planetary_system.planet.radius.to("cm").value
+        )
+        keeper.R_star = keeper.fl_prec(self.planetary_system.star.radius.to("cm").value)
+        keeper.T_star = keeper.fl_prec(self.planetary_system.star.t_eff.to("K").value)
+        keeper.T_intern = float(
+            self.planetary_system.planet.internal_temperature.to("K").value
+        )
 
         # ---------- radiation --------#
-        # keeper.f_factor = float(f_factor)
+        # keeper.f_factor = float(self.planetary_system.planet.dilution_factor)
 
         self._reader = reader
         self._keeper = keeper
@@ -321,8 +399,12 @@ class PhaethonRunner:
         self._plotter = plotter
         self._fogger = fogger
 
+    def _solve_rad_trans(self):
+        # this seems necessary to make it work with subsequent iterations
+        self._keeper.delta_colmass = []
+        self._keeper.delta_col_upper = []
+        self._keeper.delta_col_lower = []
 
-    def _loop_helios(self):
         hsfunc.set_up_numerical_parameters(self._keeper)
         hsfunc.construct_grid(self._keeper)
         # hsfunc.initial_temp(keeper, reader, init_T_profile) TODO: implement!
@@ -345,8 +427,12 @@ class PhaethonRunner:
         # ---------- conduct core computations on the GPU --------------#
         self._computer.construct_planck_table(self._keeper)
         self._computer.correct_incident_energy(self._keeper)
-        self._computer.radiation_loop(self._keeper, self._writer, self._reader, self._plotter)
-        self._computer.convection_loop(self._keeper, self._writer, self._reader, self._plotter)
+        self._computer.radiation_loop(
+            self._keeper, self._writer, self._reader, self._plotter
+        )
+        self._computer.convection_loop(
+            self._keeper, self._writer, self._reader, self._plotter
+        )
 
         self._computer.integrate_optdepth_transmission(self._keeper)
         self._computer.calculate_contribution_function(self._keeper)
@@ -362,8 +448,10 @@ class PhaethonRunner:
         hsfunc.calculate_conv_flux(self._keeper)
         hsfunc.calc_F_ratio(self._keeper)
 
-
     def _write_helios_output(self):
+
+        os.makedirs(self.outdir + "HELIOS_iterative", exist_ok=True)
+
         self._writer.write_colmass_mu_cp_entropy(self._keeper, self._reader)
         self._writer.write_integrated_flux(self._keeper, self._reader)
         self._writer.write_downward_spectral_flux(self._keeper, self._reader)
@@ -400,168 +488,3 @@ class PhaethonRunner:
 
         # prints the success message - yay!
         hsfunc.success_message(self._keeper)
-
-
-# def run_phaethon(
-#     melt_wt_comp,
-#     Delta_IW,
-#     lavaplanet,
-#     star,
-#     outdir,
-#     opac_species,
-#     fO2_volatiles = {},
-#     scatterers={},
-#     do_background=False,
-#     vaporization_code="muspell",
-#     opacity_path="/home/fabian/LavaWorlds/phaethon/ktable/output/R200_0.1_200_pressurebroad/",
-#     t_internal=None,
-#     f_factor=1.0,
-# ):
-#     # --------- Is 'outdir' ok? ------#
-#     if outdir == "":
-#         outdir = "./"
-#     elif outdir[-1] != "/":
-#         outdir += "/"
-
-#     if not os.path.isdir(outdir):
-#         os.makedirs(outdir, exist_ok=True)
-
-#     # TODO: make 'use_star_spec' usable
-#     T_subst, T_eq = calc_Temp(lavaplanet, star, use_star_spec=False)
-#     t_boa = T_subst
-
-#     # if user specifies internal temperature, use as melt temperature instead
-#     if t_internal is not None:
-#         t_boa = t_internal
-#         if t_internal < 1500:
-#             raise Warning(
-#                 "Melt tmeperature is dangerously low. These could destabilize the code."
-#             )
-#     else:
-#         t_internal = 30.0
-
-#     # TODO: make vaporock usable & adjust MAGMA pressures
-#     print(f"Vaporizing melt @{t_boa} K")
-#     mol_elem_frac, Ptotal, logfO2, cmelt = run_vaporize(
-#         t_boa,
-#         melt_wt_comp,
-#         Delta_IW,
-#         vaporization_code,
-#         fO2_volatiles,
-#     )
-#     t_melt_trace = [t_boa]
-
-#     run_fastchem_on_grid(mol_elem_frac, outdir)
-#     lavaplanet.Ptotal = Ptotal
-#     lavaplanet.substellar_temperature = T_subst
-#     lavaplanet.equilibrium_temperature = T_eq
-
-#     outfile = outdir + "/species_iterative.dat"
-#     write_atmospecies_file(outfile, opac_species, scatterers)
-
-#     # ----------- initial HELIOS run ------------#
-#     reader, keeper, computer, writer, plotter, fogger = set_up_helios(
-#         lavaplanet,
-#         star,
-#         outdir,
-#         run_type="iterative",
-#         opacity_path=opacity_path,
-#         t_internal=t_internal,
-#         f_factor=f_factor,
-#     )
-#     loop_helios(reader, keeper, computer, writer, plotter, fogger)
-
-#     # ............. HELIOS loop .................#
-#     T_abstol = 35.0
-#     Delta_T_melt = abs(t_boa - keeper.T_lay[keeper.nlayer])
-#     t_boa = keeper.T_lay[keeper.nlayer]
-
-#     t_melt_trace.append(t_boa)
-
-#     try_second_loop = False
-
-#     while Delta_T_melt > T_abstol:
-#         mol_elem_frac, Ptotal, logfO2, cmelt = run_vaporize(
-#             t_boa,
-#             melt_wt_comp,
-#             Delta_IW,
-#             vaporization_code,
-#             fO2_volatiles,
-#         )
-
-#         run_fastchem_on_grid(mol_elem_frac, outdir)
-
-#         keeper.p_boa = Ptotal / 1e-6
-#         loop_helios(reader, keeper, computer, writer, plotter, fogger)
-
-#         Delta_T_melt = abs(t_boa - keeper.T_lay[keeper.nlayer])
-#         t_boa = keeper.T_lay[keeper.nlayer]
-
-#         t_melt_trace.append(t_boa)
-
-#         if (
-#             len(t_melt_trace) >= 3
-#             and abs(t_melt_trace[-3] - t_melt_trace[-1]) <= T_abstol
-#         ):
-#             print("Melt temperature series seems to be oscillating")
-#             try_second_loop = True
-#             break
-
-#     # ----------- if oscillating, try branch-and-bound --------#
-#     if try_second_loop:
-#         search_range = [np.amin(t_melt_trace), np.amax(t_melt_trace)]
-
-#         while abs(Delta_T_melt) > T_abstol:
-#             # ..... run helios .....#
-#             t_boa = (search_range[0] + search_range[1]) / 2.0
-
-#             print(f"Vaporizing melt @{t_boa} K")
-#             mol_elem_frac, Ptotal, logfO2, cmelt = run_vaporize(
-#                 t_boa,
-#                 melt_wt_comp,
-#                 Delta_IW,
-#                 vaporization_code,
-#                 fO2_volatiles,
-#             )
-
-#             run_fastchem_on_grid(mol_elem_frac, outdir)
-
-#             keeper.p_boa = Ptotal / 1e-6
-#             loop_helios(reader, keeper, computer, writer, plotter, fogger)
-
-#             Delta_T_melt = t_boa - keeper.T_lay[keeper.nlayer]
-
-#             if Delta_T_melt < 0:  # melt cooler than T_BOA
-#                 search_range[0] = t_boa
-#             elif Delta_T_melt > 0:  # melt hotter than T_BOA
-#                 search_range[1] = t_boa
-
-#     # update melt parameters
-#     lavaplanet.Ptotal = Ptotal
-#     lavaplanet.t_boa = t_boa
-
-#     store_metadata(
-#         lavaplanet,
-#         star,
-#         cmelt,
-#         logfO2,
-#         Delta_IW,
-#         vaporization_code,
-#         mol_elem_frac,
-#         outdir,
-#         opac_species,
-#         scatterers,
-#         keeper.f_factor,
-#     )
-
-#     write_helios(reader, keeper, computer, writer, plotter, fogger)
-
-#     # ---------- final FastChem run -----------#
-#     filename = outdir + "HELIOS_iterative/tp.dat"
-
-#     # some input values for temperature (in K) and pressure (in bar)
-#     df = pd.read_csv(filename, header=1, delim_whitespace=True)
-#     temperature = df["temp.[K]"].to_numpy(float)
-#     pressure = df["press.[10^-6bar]"].to_numpy(float) * 1e-6
-
-#     run_fastchem_on_PTprofile(pressure, temperature, outdir)

@@ -41,7 +41,7 @@ planet = Planet(
     radius=1.0 * unit.R_earth,
     bond_albedo=0.0,
     dilution_factor=1.0,
-    internal_temperature=30 * unit.K,
+    internal_temperature=0 * unit.K,
 )
 
 planetary_system = PlanetarySystem(
@@ -62,13 +62,15 @@ runner = PhaethonRunner(
     vapour_engine=vapour_engine,
     outdir="output/test",
     # opac_species={"Si", "SiO", "SiO2", "O", "O2"},
-    opac_species={"Si"},
+    opac_species={"SiO"},
     scatterers={},
     opacity_path="/home/fabian/LavaWorlds/phaethon/ktable/output/R200_0.1_200_pressurebroad/",
 )
-runner.info_dump()
-runner._equilibriate_surface(surface_temperature=runner.planetary_system.planet.temperature.value)
-runner._write_atmospecies_file()
-runner._helios_setup(standard_param_file="phaethon/data/standard_lavaplanet_params.dat")
-runner._loop_helios()
-runner._write_helios_output()
+# runner.info_dump()
+# runner._equilibriate_surface(surface_temperature=runner.planetary_system.planet.temperature.value)
+# runner._write_atmospecies_file()
+# runner._helios_setup(standard_param_file="phaethon/data/standard_lavaplanet_params.dat")
+# runner._loop_helios()
+# runner._write_helios_output()
+
+runner.run()

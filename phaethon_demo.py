@@ -72,4 +72,4 @@ pipeline = PhaethonPipeline(
     opacity_path="/home/fabian/LavaWorlds/phaethon/ktable/output/R200_0.1_200_pressurebroad/",
     nlayer=38,
 )
-pipeline.run()
+# pipeline.run()

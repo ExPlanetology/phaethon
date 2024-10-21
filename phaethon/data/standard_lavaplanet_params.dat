@@ -1,0 +1,125 @@
+### ### ##################### ### ###
+### ### PARAMETERS FOR HELIOS ### ###
+### ### ##################### ### ###
+
+Standard users                 -->  please use basic settings only
+RT experts or HELIOS veterans  -->  change advanced settings at your own risk
+
+Note that the name of the parameter file can be set with command-line option "-parameter_file".
+
+See online documentation for a detailed explanation of each parameter --> https://heliosexo.readthedocs.io 
+
+### ### BASIC SETTINGS ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### values and format ### ### ### ### ### ###
+                                               
+=== === GENERAL === ===
+
+name =                                                0                               [any string]                                 (CL: Y)
+output directory =                                    ./output/                       [directory path]                             (CL: Y)
+realtime plotting =                                   yes                             [yes, no, number > 0]                        (CL: Y)
+planet type =                                         rocky                           [rocky, gas, no_atmosphere]                  (CL: Y)
+
+=== === GRID === ===
+
+TOA pressure [10^-6 bar] =                            1e-1                            [number > 0]                                 (CL: Y)
+BOA pressure [10^-6 bar] =                            1e9                             [number > 0]                                 (CL: Y)
+
+=== === ITERATION === ===
+
+run type =                                            iterative                       [iterative, post-processing]                 (CL: Y)
+  post-proc. --> path to temperature file =           ./output/0/0_tp.dat             [file path]                                  (CL: Y)
+  post-proc. --> temperature file format =            helios                          [helios, TP (bar), PT (bar)]                 (CL: N)
+
+=== === RADIATION === ===
+
+scattering =                                          yes                             [yes, no]                                    (CL: Y)
+direct irradiation beam =                             no                              [yes, no]                                    (CL: Y)
+  no  --> f factor =                                  0.5                             [number: 0.25 - 1]                           (CL: Y)
+  yes --> stellar zenith angle [deg] =                60                              [number: 0 - 89]                             (CL: Y)
+internal temperature [K] =                            30                              [number > 0]                                 (CL: Y)
+surface albedo =                                      0.0                             [file, number: 0 - 1]                        (CL: Y)
+  file --> path to albedo file =                      ./input/albedo.dat              [path to file]                               (CL: Y)
+  file --> albedo file format =                       2 Wavelength micron             [#skip, wavel.col., wavel.unit[micron,cm,m]] (CL: N)
+  file --> surface name =                             Feldspathic                     [column with surface data]                   (CL: Y)
+rocky planet --> use f approximation formula =        no                              [yes, no]                                    (CL: Y)
+
+=== === OPACITY MIXING === ===
+
+opacity mixing =                                      premixed                        [premixed, on-the-fly]                       (CL: Y)
+  premixed   --> path to opacity file =               ./input/r50_kdistr_solar_eq.h5  [file path]                                  (CL: Y)
+  on-the-fly --> path to species file =               ./input/species.dat             [file path]                                  (CL: Y)
+  on-the-fly --> file with vertical mixing ratios =   ./input/vmr_mix.txt             [file path]                                  (CL: Y)
+  on-the-fly --> vertical VMR file format =           1 Pressure cgs                  [#skip, press.col., press.unit[cgs,Pa,bar]]  (CL: N)
+  on-the-fly --> directory with FastChem files =      ./input/chemistry/lodders_m0/   [directory path]                             (CL: Y)
+  on-the-fly --> directory with opacity files =       ./input/opacity/r50_kdistr/     [directory path]                             (CL: Y)
+
+=== === CONVECTIVE ADJUSTMENT === ===
+
+convective adjustment =                               yes                             [yes, no]                                    (CL: Y)
+kappa value =                                         0.285714                        [file, number > 0]                           (CL: Y) 
+  file --> kappa file path =                          ./input/delad_example.dat       [file path]                                  (CL: Y)
+
+=== === STELLAR AND PLANETARY PARAMETERS === ===
+
+stellar spectral model =                              file                            [blackbody, file]                            (CL: Y)
+  file --> path to stellar spectrum file =            ./input/star_2022.h5            [file path]                                  (CL: Y)
+  file --> dataset in stellar spectrum file =         /r50_kdistr/phoenix/gj1214      [dataset]                                    (CL: Y)
+planet =                                              GJ_1214b                        [manual, name of planet]                     (CL: Y)
+  manual --> surface gravity [cm s^-2] =              2000                            [number > 0]                                 (CL: Y)
+  manual --> orbital distance [AU] =                  0.0124                          [number > 0]                                 (CL: Y)
+  manual --> radius planet [R_Jup] =                  1                               [number > 0]                                 (CL: Y)
+  manual --> radius star [R_Sun] =                    1                               [number > 0]                                 (CL: Y)
+  manual --> temperature star [K] =                   0                               [number >= 0]                                (CL: Y)
+
+=== === CLOUDS === ===
+
+number of cloud decks =                               0                               [number >= 0]                                (CL: Y)
+path to Mie files =                                   ./input/cloud1/ ./input/cloud2/ [directory path(s)]                          (CL: Y, only 1 cloud)
+aerosol radius mode [micron] =                        10   20                         [number(s) > 0]                              (CL: Y, only 1 cloud)
+aerosol radius geometric std dev =                    2    1.5                        [number(s) > 1]                              (CL: Y, only 1 cloud)
+cloud mixing ratio =                                  file                            [manual, file]                               (CL: Y)
+  file   --> path to file with cloud data =           ./input/cloud_file.txt          [file path]                                  (CL: Y)
+  file   --> cloud file format =                      1 Pressure cgs                  [#skip, press.col., press.unit[cgs,Pa,bar]]  (CL: N)
+  file   --> aerosol name =                           Aerosol1  Aerosol2              [name(s) of column(s) with cloud data]       (CL: Y, only 1 cloud)
+  manual --> cloud bottom pressure [10^-6 bar] =      1e5       1e3                   [number(s) > 0]                              (CL: Y, only 1 cloud)
+  manual --> cloud bottom mixing ratio =              1e-19     1e-19                 [number(s): 0 - 1]                           (CL: Y, only 1 cloud)
+  manual --> cloud to gas scale height ratio =        0.5       0.5                   [number(s) > 0]                              (CL: Y, only 1 cloud)
+
+=== === PHOTOCHEMICAL KINETICS COUPLING === ===
+
+coupling mode =                                       no                              [yes, no]                                    (CL: Y)
+  yes --> full output each iteration step =           no                              [yes, no]                                    (CL: Y)
+  yes --> force eq chem for first iteration =         yes                             [yes, no]                                    (CL: Y)
+  yes --> coupling speed up =                         yes                             [yes, no]                                    (CL: Y)
+  yes --> coupling iteration step =                   0                               [number >= 0]                                (CL: Y)
+
+### ### ### ADVANCED SETTINGS ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
+
+debugging feedback =                             no                         [yes, no]                                                      (CL: Y)
+precision =                                      double                     [double, single]                                               (CL: Y)
+number of layers =                               automatic                  [automatic, number > 0]                                        (CL: Y)
+isothermal layers =                              automatic                  [automatic, yes, no]                                           (CL: Y)
+adaptive interval =                              20                         [number]                                                       (CL: Y)
+TP profile smoothing =                           no                         [yes, no]                                                      (CL: Y)
+improved two stream correction =                 no                         [yes, no]                                                      (CL: Y)
+  yes --> I2S transition point =                 0.1                        [number between 0 and 1]                                       (CL: Y)
+asymmetry factor g_0 =                           0                          [number between -1 and 1]                                      (CL: Y)
+diffusivity factor =                             2                          [number between 1 and 2]                                       (CL: Y)
+second Eddington coefficient =                   0.5                        [number]                                                       (CL: Y)
+geometric zenith angle correction =              automatic                  [automatic, yes, no]                                           (CL: Y)
+flux calculation method =                        iteration                  [iteration, matrix]                                            (CL: Y)
+on-the-fly --> k coefficients mixing method =    RO                         [correlated-k, RO]                                             (CL: Y)
+energy budget correction =                       automatic                  [automatic, yes, no]                                           (CL: Y)
+convective damping parameter =                   automatic                  [automatic, number > 0]                                        (CL: Y)
+plancktable dimension and stepsize =             8000          2            [two numbers > 0]                                              (CL: N)
+maximum number of iterations =                   100000                     [number > 0]                                                   (CL: Y)
+radiative equilibrium criterion =                1e-8                       [number > 0]                                                   (CL: Y)
+relax radiative criterion at =                   1e4   2e4                  [two numbers > 0]                                              (CL: N)
+number of prerun timesteps =                     0                          [number >= 0]                                                  (CL: Y)
+physical timestep [s] =                          no                         [no, number > 0]                                               (CL: Y)
+  number --> runtime limit [s] =                 86400                      [number > timestep]                                            (CL: Y)
+  number --> start from provided TP profile =    no                         [yes, no]                                                      (CL: Y)
+include additional heating =                     no                         [yes, no]                                                      (CL: Y)
+  yes --> path to heating file =                 ./input/heating_file.txt   [file path]                                                    (CL: Y)
+  yes --> heating file format =                  1 Pressure cgs Heating 1e7 [#skip, press.col., press.unit[cgs,Pa,bar], data, cgs factor]  (CL: N)
+coupling --> write TP profile during run =       no                         [no, number > 0]                                               (CL: Y)
+coupling --> convergence criterion =             1e-4                       [number > 0]                                                   (CL: Y) 

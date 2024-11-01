@@ -22,7 +22,8 @@ import json
 import logging
 import os
 import time
-from typing import Union, Tuple, Optional, Literal
+from typing import Tuple, Optional, Literal, List
+from io import TextIOWrapper
 import numpy as np
 import pandas as pd
 
@@ -100,6 +101,33 @@ class PhaethonPipeline:
     ) -> None:
         """
         Init the phaethon pipeline.
+
+        Parameters
+        ----------
+        planetary_system : PlanetarySystem
+            The planetary system to be modeled.
+        vapour_engine : VapourEngine
+            The engine responsible for handling vaporization/outgassing processes.
+        outdir : str
+            The directory where output files will be stored.
+        opac_species : set
+            A set of species to be considered for opacity calculations.
+        scatterers : set
+            A set of scatterer species included in the model.
+        opacity_path : str
+            Path to the opacity data files.
+        path_to_eqconst : Optional[str], optional
+            Path to the equilibrium constant data files. Default is None.
+        p_toa : float, optional
+            Total atmospheric pressure at the top of the atmosphere (in bar). Default is 1e-8.
+        p_grid_fastchem : np.ndarray, optional
+            Pressure grid for fast chemistry calculations. Default is a logarithmic space from 1e-8
+            to 1e3.
+        t_grid_fastchem : np.ndarray, optional
+            Temperature grid for fast chemistry calculations. Default is a linear space from 500 to
+            6000 K.
+        nlayer : int, optional
+            Number of layers in the model. Default is 50.
         """
 
         if not outdir.endswith("/"):
@@ -126,7 +154,7 @@ class PhaethonPipeline:
             pressures=p_grid_fastchem, temperatures=t_grid_fastchem
         )
 
-        # Advanced options
+        # part of advanced options
         self.nlayer = nlayer  # No. of atmospheric layers
 
         # HELIOS objects
@@ -138,7 +166,9 @@ class PhaethonPipeline:
         self._fogger = None
 
     def info_dump(self) -> None:
-        """Dumps all info into a JSON-file in self.outdir"""
+        """
+        Dumps all info into a JSON-file in `self.outdir`.
+        """
 
         metadata = self.planetary_system.get_info()
 
@@ -184,7 +214,7 @@ class PhaethonPipeline:
         cuda_kws: Optional[dict] = None,
     ) -> None:
         """
-        Equilibrates an atmosphere with the underlying ocean and solves the
+        Equilibrates an atmosphere with the underlying (magma) ocean and solves the
         radiative transfer problem.
 
         Parameters
@@ -198,27 +228,33 @@ class PhaethonPipeline:
                     None: no condensation
                     "equilibrium": equilibrium condensation
                     "rainout": if condensates form, they precipitate
-        Returns
-        -------
-            p_boa : float
-                Pressure at the bottom-of-the-atmosphere (BOA), in bar.
-            t_boa : float
-                Temperature at the bottom-of-the-atmosphere (BOA), in K.
+            cuda_kws : dict
+                Dictionary containing additional args (e.g., compiler flags) for nvcc, the CUDA
+                compiler. Called when compiling the HELIOS kernels on-the-fly.
         """
 
+        # Write an initial metadata file
         self.info_dump()
+
+        # Inital temperature of the melt, based on the irradiation temperature
         self.planetary_system.calc_pl_temp()
         self.t_melt = self.planetary_system.planet.temperature.value
         self.t_boa = np.nan
-
-        t_melt_trace: np.ndarray = np.zeros(0, dtype=float)
+        
+        # Generate the file which lists opacity & scattering species and store it in output dir. 
+        # Read by HELIOS
         self._write_opacspecies_file()
 
+        # Initialise HELIOS. If necessary, pass additional compiler flags to nvcc (CUDA).
         if cuda_kws is None:
             cuda_kws = {}
-
         self._helios_setup(param_file=param_file, cuda_kws=cuda_kws)
 
+        # Values for convergence monitoring.
+        # `delta_t_melt` is difference between temperature used for vaporisation (t_melt) and
+        # temperature at the base of the atmosphere; for a converged solution, these should be
+        # close. `t_melt_trace` stores `t_melt` to check or oscillating solutions.
+        t_melt_trace: np.ndarray = np.zeros(0, dtype=float)
         delta_t_melt: float = np.inf
 
         with open(self.outdir + "tmelt_trace.dat", "w", encoding="utf-8") as tmelt_file:
@@ -229,7 +265,7 @@ class PhaethonPipeline:
             converged: bool = False
 
             while not converged and not search_iteratively:
-                t_melt_trace = self._update_temperature_trace(t_melt_trace=t_melt_trace)
+                t_melt_trace = np.append(t_melt_trace, self.t_melt)
                 p_boa, t_boa = self._single_iteration(
                     t_melt=self.t_melt, cond_mode=cond_mode
                 )
@@ -270,17 +306,35 @@ class PhaethonPipeline:
     # ============================================================================================
     # SEMI-PRIVATE METHODS
     # ============================================================================================
-    def _initialize_tmelt_file(self, tmelt_file):
-        """Initialize the tmelt_file with starting temperature."""
+    def _initialize_tmelt_file(self, tmelt_file: TextIOWrapper) -> None:
+        """
+        Initialize the tmelt_file with starting temperature.
+        
+        Parameters
+        ----------
+            tmelt_file: TextIOWrapper
+                Open file where `tmelt` is stored.
+        Returns
+        -------
+            None
+        """
         tmelt_file.write(f"Starting temperature (melt): {self.t_melt}\n\n")
         tmelt_file.flush()
 
-    def _update_temperature_trace(self, t_melt_trace: np.ndarray) -> np.ndarray:
-        """Update the temperature trace with the current melt temperature."""
-        return np.append(t_melt_trace, self.t_melt)
+    def _log_temperature_data(self, tmelt_file: TextIOWrapper, delta_t_melt: float) -> None:
+        """
+        Log the current temperature data to `tmelt_file`.
 
-    def _log_temperature_data(self, tmelt_file, delta_t_melt: float) -> None:
-        """Log the current temperature data to the file."""
+        Parameters
+        ----------
+            tmelt_file : TextIOWrapper
+                Open file where `tmelt` is stored.
+            delta_t_melt : float
+                Difference between current melt temperature and bottom-of-atmosphere temperature.
+        Returns
+        -------
+            None
+        """
         tmelt_file.write(f"self.t_melt: {self.t_melt} K\n")
         tmelt_file.write(f"self.t_boa: {self.t_boa} K\n")
         tmelt_file.write(f"ΔT: {delta_t_melt} K\n\n")
@@ -288,41 +342,86 @@ class PhaethonPipeline:
 
     def _check_convergence(
         self, t_melt_trace: np.ndarray, delta_t_melt: float, t_abstol: float
-    ) -> tuple:
-        """Check for convergence and oscillation conditions."""
+    ) -> Tuple[bool, bool]:
+        """
+        Check for convergence and oscillation conditions.
+
+        Parameters
+        ----------
+            t_melt_trace : np.ndarray
+                Melt temperature as function of 'time', i.e. number of iterations.
+            delta_t_melt : float
+                Difference between current melt temperature and bottom-of-atmosphere temperature.
+            t_abstol : float
+                ΔT allowed between t_melt and t_boa, in K.
+        Returns
+        -------
+            search_iteratively : bool
+                True if osciallating solution is discovered, i.e. an iterative search has to be
+                initiated.
+            coverged : bool
+                Did `t_melt` and `t_boa` converge towards each other?
+        """
         diff_to_closest_melt_temp: float = np.abs(t_melt_trace - self.t_boa).min()
-        search_iteratively = diff_to_closest_melt_temp < t_abstol < delta_t_melt
-        converged = delta_t_melt <= t_abstol
+        search_iteratively: bool = diff_to_closest_melt_temp < t_abstol < delta_t_melt
+        converged: bool = delta_t_melt <= t_abstol
         return search_iteratively, converged
 
     def _attempt_iterative_search(
-        self, tmelt_file, t_melt_trace: np.ndarray, t_abstol: float, cond_mode: str
+        self, tmelt_file: TextIOWrapper, t_melt_trace: np.ndarray, t_abstol: float, cond_mode: str
     ) -> None:
-        """Attempt an iterative search if temperature oscillations are detected."""
+        """
+        Attempt an iterative search if temperature oscillations are detected.
+
+        Parameters
+        ----------
+            tmelt_file : TextIOWrapper
+                Open file where `tmelt` is stored.
+            t_melt_trace : np.ndarray
+                Melt temperature as function of 'time', i.e. number of iterations.
+            t_abstol : float
+                ΔT allowed between t_melt and t_boa, in K.
+            cond_mode : str
+                Condensation mode, allowed are:
+                    "none"
+                        --> no condensation
+                    "equilibrium"
+                        --> equilbrium condensation, i.e. elemental composition is
+                            conserved in every atmospheric layer.
+                    "rainout":
+                        --> if condensates form, they precipitate and remove parts of
+                            the elemental abundances. Currently, its use is discouraged,
+                            as it does not work properly with the current FastChem <-> HELIOS
+                            coupling.
+        Returns
+        -------
+            None
+        """
         tmelt_file.write("\nMelt temperature series seems to be oscillating,\n")
         tmelt_file.write("Attempting iterative search...\n")
         tmelt_file.flush()
 
-        search_range = [np.amin(t_melt_trace), np.amax(t_melt_trace)]
-        counter = 0
-        max_iter = 15
-        converged = False
-        converged_to_false_minimum = False
+        search_range: Tuple[float, float] = (np.amin(t_melt_trace), np.amax(t_melt_trace))
+        counter: int = 0
+        max_iter: int = 15
+        converged: bool = False
+        converged_to_false_minimum: bool = False
 
         while not converged and counter < max_iter and not converged_to_false_minimum:
             self.t_melt = (search_range[0] + search_range[1]) / 2.0
             t_melt_trace = np.append(t_melt_trace, self.t_melt)
 
-            p_boa, t_boa = self._single_iteration(
+            # Equilibrate ocean, atmosphere (outgassing + radiative transfer)
+            self.p_boa, self.t_boa = self._single_iteration(
                 t_melt=self.t_melt, cond_mode=cond_mode
             )
-            self.p_boa, self.t_boa = p_boa, t_boa
-
-            delta_t_melt = abs(self.t_boa - self.t_melt)
-            self._log_temperature_data(tmelt_file, delta_t_melt)
 
             # Check for convergence
+            delta_t_melt = abs(self.t_boa - self.t_melt)
             converged = delta_t_melt <= t_abstol
+
+            # Log progress (temperature convergence) in file
+            self._log_temperature_data(tmelt_file, delta_t_melt)
 
             # Update search range
             search_range, converged_to_false_minimum = self._update_search_range(

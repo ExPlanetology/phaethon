@@ -74,6 +74,12 @@ def get_compound_mass(formula: str) -> float:
 class IdealGasMixture:
     """
     A class to perform all calculations associated to an ideal gas.
+
+    Parameters
+    ----------
+        p_bar : Union[dict, pd.Series]
+            Dictionary or pandas.Series that holds partial pressures of species in an ideal gas
+            mixture. Keys/indices are species names, values are partial pressures, in bar.
     """
 
     # pylint: disable=too-many-instance-attributes
@@ -109,7 +115,14 @@ class IdealGasMixture:
 
     @p_bar.setter
     def p_bar(self, p_dict: dict) -> None:
-        """Build gas mixture from partial pressure dict"""
+        """
+        Build gas mixture from partial pressure dict.
+
+        Parameters
+        ----------
+            p_dict : dict
+                Dictionary containint the partial pressures of gas species, in bar.
+        """
         self._p_bar = pd.Series(p_dict)
         self.log_p = np.log10(self._p_bar)
         self.p_total = self._p_bar.sum()

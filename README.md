@@ -1,5 +1,5 @@
 # phaethon
-Atmosphere-interior interactions on lava ocean planets: coupling muspell, fastchem and HELIOS.
+Calculate the structure, composition and emission spectra of lava-planet atmospheres! 
 
 ## Quick install
 
@@ -39,6 +39,23 @@ If desired, you will need to manually install the dependencies for testing and d
 
     pip install pytest
 
+### 4. Optain or create opaciy files
+
+#### Option 1: Precomputed opacities
+The opacity files used for Seidler et al. 2024 can be found on zenodo at https://doi.org/10.5281/zenodo.13837367. Please download the repository and extract it. You can find the opacity files in zenodo/input/opacities/. Note that the relevant files are the interpolated k-tables, indicated by their name which should end in '_ip_kdistr.h5'. When running phaethon, you should point it to the location of the opacity files. This is done via the 'opacity_path' keyword:
+
+    pipeline: PhaethonPipeline(
+        opacity_path="path/to/opacities/",
+        **other_args,  # Additional necessary keyword arguments
+    )
+
+Please have a look at 'phaethon_demo.py' for a hands-on example!
+
+#### Option 2: Compile them yourself
+
+If you want to compile your own opacities, please follow the instructions for HELIOS: https://heliosexo.readthedocs.io/en/latest/sections/tutorial.html#include-more-opacities
+Similarly to Option 1, pass the location of the opacity files to phaethon.
+
 ## Developer install
 
 See this [developer setup guide](https://gist.github.com/djbower/c66474000029730ac9f8b73b96071db3) to set up your system to develop *phaethon* using [VS Code](https://code.visualstudio.com) and [Poetry](https://python-poetry.org).
@@ -49,4 +66,4 @@ You can confirm that all tests pass by running `pytest` in the root directory of
 
 ## License
 
-Do not share this project without the authors permission!
+This project is licensed under the Affero General Public License (AGPL). See the [LICENSE](LICENSE) file for more details.

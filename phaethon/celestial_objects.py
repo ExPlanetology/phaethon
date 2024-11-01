@@ -1,5 +1,20 @@
 """
-Module for managing the parameters physical and orbital paramters of the planet and its star. 
+Managing the physical and orbital parameters of the planet and its host star.
+
+Copyright 2024 Fabian L. Seidler
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 import logging
@@ -178,11 +193,10 @@ class Star:
             outdir : str
                 Where to place the output file
             opac_file_for_lambdagrid : str
-                Reference for wavelength - must be same as planet
+                Reference for wavelength - must be same as planet.
             plot_and_tweak: bool
-                Make star_tool plot the final spectrum,
-                allowing to manually tweak it (maybe necessary for phoenix,
-                especially for mid-to-far infrared wavelengths)
+                Make star_tool plot the final spectrum, allowing to manually tweak it (maybe 
+                necessary for phoenix, especially for mid-to-far infrared wavelengths).
         """
         if not outdir.endswith("/"):
             outdir += "/"

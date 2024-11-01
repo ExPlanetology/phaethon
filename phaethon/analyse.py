@@ -1,6 +1,5 @@
 """
-This module allows the automatic read-in of phaethon/HELIOS results, and offers some handy tools
-for their post-processing.
+Read, store and post-process phaethon results.
 
 Copyright 2024 Fabian L. Seidler
 

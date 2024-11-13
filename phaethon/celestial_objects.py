@@ -31,6 +31,10 @@ from astropy.units.quantity import Quantity as AstropyQuantity
 from helios.star_tool.functions import main_loop as startool_mainloop
 from scipy.interpolate import interp1d
 
+# ================================================================================================
+#   LOGGER
+# ================================================================================================
+
 logger = logging.getLogger(__name__)
 
 # ================================================================================================
@@ -304,12 +308,13 @@ class Star:
 
 class Orbit(ABC):
     """
-    Relates orbital period <-> semi-major axis
+    Relates orbital period <-> semi-major axis.
     """
 
     @abstractmethod
     def get_period(self, star_mass: AstropyUnit) -> AstropyUnit:
-        """Returns the period of a circular orbit of given semi-major axis and stellar mass.
+        """
+        Returns the period of a circular orbit of given semi-major axis and stellar mass.
 
         Parameters
         ----------
@@ -324,7 +329,8 @@ class Orbit(ABC):
 
     @abstractmethod
     def get_semimajor_axis(self, star_mass: AstropyUnit) -> AstropyUnit:
-        """Returns the period of a circular orbit of given semi-major axis and stellar mass.
+        """
+        Returns the semi-major axis of a circular orbit of given orbital period and stellar mass.
 
         Parameters
         ----------
@@ -354,7 +360,8 @@ class CircularOrbitFromPeriod(Orbit):
         self.period = period.to("day")
 
     def get_period(self, star_mass: AstropyUnit) -> AstropyUnit:
-        """Returns the period of a circular orbit of given semi-major axis and stellar mass.
+        """
+        Returns the period of a circular orbit of given semi-major axis and stellar mass.
 
         Parameters
         ----------
@@ -369,7 +376,8 @@ class CircularOrbitFromPeriod(Orbit):
         return self.period
 
     def get_semimajor_axis(self, star_mass: AstropyUnit) -> AstropyUnit:
-        """Returns the period of a circular orbit of given semi-major axis and stellar mass.
+        """
+        Returns the semi-major axis of a circular orbit of given orbital period and stellar mass.
 
         Parameters
         ----------
@@ -402,7 +410,8 @@ class CircularOrbitFromSemiMajorAxis(Orbit):
         self.semi_major_axis = semi_major_axis.to("AU")
 
     def get_period(self, star_mass: AstropyUnit) -> AstropyUnit:
-        """Returns the period of a circular orbit of given semi-major axis and stellar mass.
+        """
+        Returns the period of a circular orbit of given semi-major axis and stellar mass.
 
         Parameters
         ----------
@@ -423,7 +432,8 @@ class CircularOrbitFromSemiMajorAxis(Orbit):
         )
 
     def get_semimajor_axis(self, star_mass: AstropyUnit) -> AstropyUnit:
-        """Returns the period of a circular orbit of given semi-major axis and stellar mass.
+        """
+        Returns the semi-major axis of a circular orbit of given orbital period and stellar mass.
 
         Parameters
         ----------
@@ -445,6 +455,9 @@ class CircularOrbitFromSemiMajorAxis(Orbit):
 
 @dataclass
 class Planet:
+    """
+    Class that holds data on planetary characteristics.
+    """
     name: str
     mass: AstropyUnit
     radius: AstropyUnit
@@ -467,6 +480,18 @@ class Planet:
 
 
 class PlanetarySystem:
+    """
+    Stores and manipulates data on the planetary system.
+
+    Parameters
+    ----------
+        star : Star
+            Star-object. See `phaethon.celestial_objects.Star`.
+        planet : Planet
+            Planet-object. See `phaethon.celestial_objects.Planet`.
+        orbit : Orbit
+            Orbit-object. See `phaethon.celestial_objects.Orbit`.
+    """
     star: Star
     planet: Planet
     orbit: Orbit
@@ -509,9 +534,25 @@ class PlanetarySystem:
         ) ** (0.25)
 
     def get_period(self) -> AstropyUnit:
+        """
+        Returns the orbital period of the planet.
+
+        Returns
+        -------
+            period : astropy.core.units.Quantity
+                Orbital period of the planet.
+        """
         return self.orbit.get_period(star_mass=self.star.mass)
 
     def get_semimajor_axis(self) -> AstropyUnit:
+        """
+        Returns the semi-major axis of the orbit.
+
+        Returns
+        -------
+            semi_major_axis : astropy.core.units.Quantity
+                Semi-major axis of the planet's orbit.
+        """
         return self.orbit.get_semimajor_axis(star_mass=self.star.mass)
 
     def set_semimajor_axis_from_pl_temp(self, t_planet: AstropyUnit) -> None:
@@ -538,7 +579,15 @@ class PlanetarySystem:
         self.planet.temperature = t_planet
 
     def get_info(self) -> dict:
-        """Returns info dict"""
+        """
+        Returns info dict
+        
+        Returns
+        -------
+            info : dict
+                Dictionary containing information on the celestial objects in this system,
+                i.e. the star, planet and its orbit.
+        """
         return {
             "star": self.star.get_info(),
             "planet": self.planet.get_info(),

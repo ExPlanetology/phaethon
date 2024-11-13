@@ -308,14 +308,45 @@ class Orbit(ABC):
     """
 
     @abstractmethod
-    def get_period(self, star_mass: AstropyUnit) -> AstropyUnit: ...
+    def get_period(self, star_mass: AstropyUnit) -> AstropyUnit:
+        """Returns the period of a circular orbit of given semi-major axis and stellar mass.
+
+        Parameters
+        ----------
+            star_mass: astropy.core.units.Quantity
+                Stellar mass.
+
+        Returns
+        -------
+            period : astropy.core.units.Quantity
+                Orbital period of the planet.
+        """
 
     @abstractmethod
-    def get_semimajor_axis(self, star_mass: AstropyUnit) -> AstropyUnit: ...
+    def get_semimajor_axis(self, star_mass: AstropyUnit) -> AstropyUnit:
+        """Returns the period of a circular orbit of given semi-major axis and stellar mass.
+
+        Parameters
+        ----------
+            star_mass: astropy.core.units.Quantity
+                Stellar mass.
+
+        Returns
+        -------
+            semi_major_axis : astropy.core.units.Quantity
+                Semi-major axis of the planet's orbit.
+        """
 
 
 class CircularOrbitFromPeriod(Orbit):
-    """Properties of a circular orbit based on its period."""
+    """
+    Properties of a circular orbit based on its period.
+    
+    Parameters
+    ----------
+        period : astropy.units.core.Unit
+            Period of the planet.
+    """
 
     period: AstropyUnit
 
@@ -323,16 +354,47 @@ class CircularOrbitFromPeriod(Orbit):
         self.period = period.to("day")
 
     def get_period(self, star_mass: AstropyUnit) -> AstropyUnit:
+        """Returns the period of a circular orbit of given semi-major axis and stellar mass.
+
+        Parameters
+        ----------
+            star_mass: astropy.core.units.Quantity
+                Stellar mass.
+
+        Returns
+        -------
+            period : astropy.core.units.Quantity
+                Orbital period of the planet.
+        """
         return self.period
 
     def get_semimajor_axis(self, star_mass: AstropyUnit) -> AstropyUnit:
+        """Returns the period of a circular orbit of given semi-major axis and stellar mass.
+
+        Parameters
+        ----------
+            star_mass: astropy.core.units.Quantity
+                Stellar mass.
+
+        Returns
+        -------
+            semi_major_axis : astropy.core.units.Quantity
+                Semi-major axis of the planet's orbit.
+        """
         return np.cbrt(
             const.G * star_mass.to("kg") * self.period.to("s") ** 2 / (4.0 * np.pi)
         ).to("AU")
 
 
 class CircularOrbitFromSemiMajorAxis(Orbit):
-    """Properties of a circular orbit based on its semi-major axis."""
+    """
+    Properties of a circular orbit based on its semi-major axis.
+        
+    Parameters
+    ----------
+        semi_major_axis : astropy.units.core.Unit
+            Semi-major axis of the planet's orbit.
+    """
 
     semi_major_axis: AstropyUnit
 
@@ -361,6 +423,18 @@ class CircularOrbitFromSemiMajorAxis(Orbit):
         )
 
     def get_semimajor_axis(self, star_mass: AstropyUnit) -> AstropyUnit:
+        """Returns the period of a circular orbit of given semi-major axis and stellar mass.
+
+        Parameters
+        ----------
+            star_mass: astropy.core.units.Quantity
+                Stellar mass.
+
+        Returns
+        -------
+            semi_major_axis : astropy.core.units.Quantity
+                Semi-major axis of the planet's orbit.
+        """
         return self.semi_major_axis
 
 

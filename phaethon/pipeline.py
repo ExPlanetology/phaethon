@@ -314,9 +314,7 @@ class PhaethonPipeline:
         ----------
             tmelt_file: TextIOWrapper
                 Open file where `tmelt` is stored.
-        Returns
-        -------
-            None
+        
         """
         tmelt_file.write(f"Starting temperature (melt): {self.t_melt}\n\n")
         tmelt_file.flush()
@@ -331,9 +329,7 @@ class PhaethonPipeline:
                 Open file where `tmelt` is stored.
             delta_t_melt : float
                 Difference between current melt temperature and bottom-of-atmosphere temperature.
-        Returns
-        -------
-            None
+        
         """
         tmelt_file.write(f"self.t_melt: {self.t_melt} K\n")
         tmelt_file.write(f"self.t_boa: {self.t_boa} K\n")
@@ -393,9 +389,7 @@ class PhaethonPipeline:
                             the elemental abundances. Currently, its use is discouraged,
                             as it does not work properly with the current FastChem <-> HELIOS
                             coupling.
-        Returns
-        -------
-            None
+        
         """
         tmelt_file.write("\nMelt temperature series seems to be oscillating,\n")
         tmelt_file.write("Attempting iterative search...\n")
@@ -433,7 +427,10 @@ class PhaethonPipeline:
     def _update_search_range(
         self, tmelt_file, search_range: list, delta_t_melt: float, t_abstol: float
     ) -> tuple:
-        """Update the search range based on the current melt temperature."""
+        """
+        Only called when an oscillating solution is detected. Defines bounds within which a new
+        solution is searched for. 
+        """
         if delta_t_melt < 0:  # melt cooler than T_BOA
             search_range[0] = self.t_melt
             tmelt_file.write("        -> melt cooler than T_BOA\n")
@@ -530,7 +527,7 @@ class PhaethonPipeline:
             )
         self._keeper.p_boa = float(self.atmo.p_total) / 1e-6  # weird HELIOS scaling
 
-        # FastChem, generates look-up table for HELIOS
+        # FastChem, generates look-up table for HELIOS in `outdir`. Direclty deposits files there.
         self.fastchem_coupler.run_fastchem(
             vapour=self.atmo,
             pressures=self._p_grid_fastchem,
@@ -589,9 +586,7 @@ class PhaethonPipeline:
         ----------
             surface_temperature : float
                 Temperature of the planet's "surface", i.e. the (lava-)ocean, in K.
-        Returns
-        -------
-            None
+        
         """
 
         self.atmo = self.vapour_engine.equilibriate_vapour(
@@ -679,9 +674,7 @@ class PhaethonPipeline:
         ----------
             keeper : quant.Store
                 A HELIOS object storing all runtime parameters.
-        Returns
-        -------
-            None
+        
         """
         if keeper.run_type == "iterative":
             keeper.singlewalk = np.int32(0)
@@ -706,9 +699,7 @@ class PhaethonPipeline:
                 A HELIOS object for reading-in the run-parameters.
             keeper : quant.Store
                 A HELIOS object storing all runtime parameters.
-        Returns
-        -------
-            None
+        
         """
         species_file_path = f"{self.outdir}/species_iterative.dat"
         reader.species_file = species_file_path
@@ -734,9 +725,7 @@ class PhaethonPipeline:
                 A HELIOS object storing all runtime parameters.
             opacity_mixing : str
                 Method of opacity mising.
-        Returns
-        -------
-            None
+        
         """
         keeper.opacity_mixing = opacity_mixing
         if keeper.opacity_mixing == "premixed":
@@ -758,9 +747,7 @@ class PhaethonPipeline:
         ----------
             reader : read.Read
                 A HELIOS object for reading-in the run-parameters.
-        Returns
-        -------
-            None
+        
         """
         reader.stellar_model = self.planetary_system.star.file_or_blackbody
 
@@ -778,9 +765,7 @@ class PhaethonPipeline:
         ----------
             keeper : quant.Store
                 A HELIOS object storing all runtime parameters.
-        Returns
-        -------
-            None
+        
         """
         keeper.g = keeper.fl_prec(
             self.planetary_system.planet.grav.to("cm / s^2").value

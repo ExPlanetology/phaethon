@@ -14,8 +14,72 @@ from phaethon.celestial_objects import (
     PlanetarySystem,
     Star,
 )
-from phaethon.outgassing import ModifiedMAGMA
+from phaethon.outgassing import VapourEngine
+from phaethon.gas_mixture import IdealGasMixture
 from phaethon.pipeline import PhaethonPipeline
+
+class Melt:
+    """
+    Dummy class to manage access to MAGMA.
+    """
+
+    def __init__(self, buffer: str = "IW") -> None:
+        self.buffer = buffer
+
+    def set_chemistry(self, wt: dict = None, mol: dict = None) -> None:
+        """
+        Dummy function to set chemistry in terms of melt oxides.
+        """
+        raise NotImplementedError()
+
+    def vaporise(self, temperature: float, dlogfO2: float) -> IdealGasMixture:
+        """
+        Dummy function to set chemistry in terms of melt oxides.
+        """
+        raise NotImplementedError()
+
+class ModifiedMAGMA(VapourEngine):
+    """ Wrapper to the MAGMA code """
+
+    melt: Melt
+    dlogfO2: float
+    vapour: IdealGasMixture
+
+    def __init__(
+        self,
+        buffer: str,
+        dlogfO2: float,
+        melt_wt_comp: dict = None,
+        melt_mol_comp: dict = None,
+    ):
+        self.melt = Melt(buffer=buffer)
+        self.dlogfO2 = dlogfO2
+
+        if melt_mol_comp is not None and melt_wt_comp is None:
+            self.melt.set_chemistry(mol=melt_mol_comp)
+        elif melt_mol_comp is None and melt_wt_comp is not None:
+            self.melt.set_chemistry(wt=melt_wt_comp)
+        elif melt_mol_comp is not None and melt_wt_comp is not None:
+            raise ValueError(
+                "Provide either 'melt_mol_comp' or 'melt_wt_comp', not both."
+            )
+        else:
+            pass
+
+    def get_info(self) -> dict:
+        raise NotImplementedError(
+            "Absent license to MAGMA, implementation must not be shared."
+        )
+
+    def set_extra_params(self, params: dict) -> None:
+        raise NotImplementedError(
+            "Absent license to MAGMA, implementation must not be shared."
+        )
+
+    def equilibriate_vapour(self, temperature: float) -> IdealGasMixture:
+        raise NotImplementedError(
+            "Absent license to MAGMA, implementation must not be shared."
+        )
 
 star = Star(
     name="Sun",

@@ -516,7 +516,7 @@ class PhaethonPipeline:
         """
 
         # Vapour composition & pressure
-        self._equilibriate_atmo_and_ocean(surface_temperature=t_melt)
+        self._equilibriate_atmo_and_ocean(temperature=t_melt)
         p_boa: float = self.atmo.p_total  # bar
         if self.atmo.log_p.empty:
             raise ValueError("'VapourEngine' returned an empty result!")
@@ -576,7 +576,7 @@ class PhaethonPipeline:
 
     def _equilibriate_atmo_and_ocean(
         self,
-        surface_temperature: float,
+        temperature: float,
     ) -> None:
         """
         Chemically equilibriates the atmosphere-melt interface, and computes the vapour
@@ -584,15 +584,15 @@ class PhaethonPipeline:
 
         Parameters
         ----------
-            surface_temperature : float
+            temperature : float
                 Temperature of the planet's "surface", i.e. the (lava-)ocean, in K.
         
         """
 
         self.atmo = self.vapour_engine.equilibriate_vapour(
-            surface_temperature=surface_temperature
+            temperature=temperature
         )
-        self.t_boa = surface_temperature
+        self.t_boa = temperature
 
     def _helios_setup(
         self,

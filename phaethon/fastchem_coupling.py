@@ -106,7 +106,7 @@ class FastChemCoupler:
         cond_mode: Optional[Literal["equilibrium", "rainout"]] = None,
         monitor: bool = False,
         ref_elem: str = "O",
-    ):
+    ) -> Tuple[pyfastchem.FastChem, pyfastchem.FastChemOutput]:
         """
         Perform gas speciation calculation using FastChem.
 

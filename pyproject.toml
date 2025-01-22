@@ -8,7 +8,9 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.10"
 astropy = "*"
+pycuda = "*"
 helios = { git = "git@github.com:ExPlanetology/HELIOS.git" }
+bayesian_optimization = "^2.0.3"
 numpy = "^1.26.4"
 pandas = "^2.2.1"
 scipy = "^1.12.0"
@@ -19,6 +21,7 @@ matplotlib-label-lines = "^0.7.0"
 pyfastchem = "^3.1.1"
 h5py = "^3.12.1"
 tqdm = "^4.66.5"
+pyqt5 = "*"
 
 [tool.poetry.group.test.dependencies]
 pytest = "^7.4.4"

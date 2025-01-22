@@ -2,6 +2,7 @@
 
 __version__: str = "0.1.0"
 
+from typing import Optional
 import logging
 
 # Create the package logger.
@@ -45,8 +46,9 @@ def debug_logger() -> logging.Logger:
     return package_logger
 
 
-def debug_file_logger() -> logging.Logger:
+def debug_file_logger(logfile: str = f"{__package__}.log") -> logging.Logger:
     """Set up the logging to a file (debug) and to the console (info)."""
+
     # Console logger
     package_logger: logging.Logger = logging.getLogger(__name__)
     package_logger.setLevel(logging.DEBUG)
@@ -56,8 +58,9 @@ def debug_file_logger() -> logging.Logger:
     console_handler.setFormatter(console_formatter)
     console_handler.setLevel(logging.INFO)
     package_logger.addHandler(console_handler)
+    
     # File logger
-    file_handler: logging.Handler = logging.FileHandler(f"{__package__}.log")
+    file_handler: logging.Handler = logging.FileHandler(logfile)
     file_formatter: logging.Formatter = complex_formatter()
     file_handler.setFormatter(file_formatter)
     file_handler.setLevel(logging.DEBUG)

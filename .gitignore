@@ -1,4 +1,5 @@
 # Phaethon results
+.gitignore
 output/
 
 # Byte-compiled / optimized / DLL files

@@ -189,8 +189,8 @@ def plot_tau(
         vmax=1.1,
         cmap=cmap,
     )
-    for c in cs.collections:
-        c.set_edgecolor("face")
+    # for c in cs.collections:
+    #     c.set_edgecolor("face")
     cbaxes = inset_axes(ax, width="30%", height="3%", loc="upper center")
     plt.colorbar(
         cs,

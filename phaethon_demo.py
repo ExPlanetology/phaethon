@@ -134,4 +134,4 @@ if __name__=="__main__":
     )
 
     # You might need to adept the architecutre to your system.
-    pipeline.run(cuda_kws={'arch':'sm_86'}, t_abstol=0.01)
+    pipeline.run(cuda_kws={'arch':'sm_86'}, t_abstol=35)

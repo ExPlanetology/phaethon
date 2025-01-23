@@ -25,9 +25,9 @@ import time
 from typing import Tuple, Optional, Literal, List
 from io import TextIOWrapper
 import numpy as np
+from numpy.typing import ArrayLike
 import pandas as pd
-from bayes_opt import BayesianOptimization
-from bayes_opt import SequentialDomainReductionTransformer
+import bayes_opt
 
 # ----- HELIOS imports -----#
 from helios import additional_heating as add_heat
@@ -44,8 +44,8 @@ from phaethon.celestial_objects import PlanetarySystem
 from phaethon.fastchem_coupling import FastChemCoupler
 from phaethon.gas_mixture import IdealGasMixture
 from phaethon.outgassing import VapourEngine
+from phaethon.logger import file_logger
 
-logger = logging.getLogger(__name__)
 
 # ================================================================================================
 #   CONSTANTS
@@ -54,6 +54,29 @@ logger = logging.getLogger(__name__)
 DEFAULT_PARAM_FILE = (
     importlib.resources.files("phaethon.data") / "standard_lavaplanet_params.dat"
 )
+
+
+def closest_smaller_value(x: float, arr: ArrayLike):
+    # Filter out values greater than or equal to x
+    smaller_values = [value for value in arr if value < x]
+    
+    # If there are no values smaller than x, return minimum of array
+    if not smaller_values:
+        return min(arr)
+    
+    # Return the maximum of the smaller values (which will be the closest)
+    return max(smaller_values)
+
+def closest_larger_value(x: float, arr: ArrayLike):
+    # Filter out values greater than or equal to x
+    smaller_values = [value for value in arr if value > x]
+    
+    # If there are no values smaller than x, return minimum of array
+    if not smaller_values:
+        return max(arr)
+    
+    # Return the maximum of the smaller values (which will be the closest)
+    return min(smaller_values)
 
 # ================================================================================================
 #   CLASSES
@@ -214,6 +237,7 @@ class PhaethonPipeline:
         param_file: str = DEFAULT_PARAM_FILE,  # TODO: implement correct path type in type hint!
         cond_mode: Optional[Literal["equilibrium", "rainout"]] = None,
         cuda_kws: Optional[dict] = None,
+        logfile_name: str = "phaethon.log"
     ) -> None:
         """
         Equilibrates an atmosphere with the underlying (magma) ocean and solves the
@@ -234,6 +258,9 @@ class PhaethonPipeline:
                 Dictionary containing additional args (e.g., compiler flags) for nvcc, the CUDA
                 compiler. Called when compiling the HELIOS kernels on-the-fly.
         """
+
+        # init logger
+        logger = file_logger(logfile=self.outdir + logfile_name)
 
         # Write an initial metadata file
         self.info_dump()
@@ -257,9 +284,9 @@ class PhaethonPipeline:
 
         # main loop
         logger.info(f"Starting temperature (melt): {self.t_melt} K")
-        tmelt_trace: List[float] = []
-        delta_tmelt_trace: List[float] = []
-        optimizer: Optional[BayesianOptimization] = None
+        self.tmelt_trace: List[float] = []
+        self.delta_tmelt_trace: List[float] = []
+        optimizer: Optional[bayes_opt.BayesianOptimization] = None
         while True:
 
             # log track of iteration
@@ -271,12 +298,8 @@ class PhaethonPipeline:
             )
 
             # append info for bayesian optimizer (and for convergence plots)
-            tmelt_trace.append(self.t_melt)
-            delta_tmelt_trace.append(delta_t_melt)
-
-            if iteration_counter == 2:
-                self.t_boa += 1000.
-                delta_t_melt = 55.0
+            self.tmelt_trace.append(self.t_melt)
+            self.delta_tmelt_trace.append(delta_t_melt)
 
             # log temperature data
             logger.info(f"t_melt: {round(self.t_melt, 2)} K")
@@ -291,21 +314,29 @@ class PhaethonPipeline:
             iteration_counter += 1
 
             if optimizer is None:
-                if self.t_boa < min(tmelt_trace) or self.t_boa > max(tmelt_trace):
+                if self.t_boa < min(self.tmelt_trace) or self.t_boa > max(self.tmelt_trace):
                     self.t_melt = self.t_boa
                 else:
-                    _search_range: Tuple[float] = (min(tmelt_trace), max(tmelt_trace))
+                    # _search_range: Tuple[float] = (
+                    #     max(1., closest_smaller_value(x=self.t_boa, arr=self.tmelt_trace) - 3*t_abstol),
+                    #     closest_larger_value(x=self.t_boa, arr=self.tmelt_trace) + 3 * t_abstol,
+                    # )
+                    _search_range: Tuple[float] = (
+                        min(self.tmelt_trace) - 1.5 * t_abstol,
+                        max(self.tmelt_trace) + 1.5 * t_abstol,
+                    )
 
                     logger.info(f"Initialising Bayesian optimizer with range {_search_range}")
 
-                    optimizer = BayesianOptimization(
+                    optimizer = bayes_opt.BayesianOptimization(
                         f=None,
                         pbounds={"t_melt":_search_range},
                         # bounds_transformer = SequentialDomainReductionTransformer(minimum_window=t_abstol * 2)
+                        acquisition_function=bayes_opt.acquisition.ExpectedImprovement(xi=0.0)
                     )
                     
                     # warm start for the optimizer by passing it the previous points
-                    for _tmelt, _delta_t in zip(tmelt_trace, delta_tmelt_trace):
+                    for _tmelt, _delta_t in zip(self.tmelt_trace, self.delta_tmelt_trace):
                         optimizer.register(
                             params={'t_melt':_tmelt},
                             target=-_delta_t, # negative because the optimizer maximises f
@@ -313,16 +344,14 @@ class PhaethonPipeline:
 
                     # suggest the next t_melt
                     next_point = optimizer.suggest()
+                    logger.info(f"   suggested new point: {next_point}")
                     self.t_melt = next_point["t_melt"]
             else:
-                try:
-                    optimizer.register(
-                        params={'t_melt':self.t_melt},
-                        target=-delta_t_melt,   # negative because the optimizer maximises f
-                    )
-                    next_point = optimizer.max["params"]
-                except bayes_opt.exception.NotUniqueError:
-                    next_point = optimizer.suggest()
+                optimizer.register(
+                    params={'t_melt':self.t_melt},
+                    target=-delta_t_melt,   # negative because the optimizer maximises f
+                )
+                next_point = optimizer.suggest()
                 logger.info(f"   suggested new point: {next_point}")
                 self.t_melt = next_point["t_melt"]
 

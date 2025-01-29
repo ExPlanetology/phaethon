@@ -86,7 +86,6 @@ class PhaethonResult:
     transmissivity: ArrayLike = field(init=False)
     integrated_transmissivity: ArrayLike = field(init=False)
     optical_depth: ArrayLike = field(init=False)
-    _contrib: np.ndarray = field(init=False)
     contribution: np.ndarray = field(init=False)
 
     def __post_init__(self) -> None:
@@ -215,7 +214,7 @@ class PhaethonResult:
         )
 
         # ------------ contribution function -----------#
-        self._contrib = (
+        self.contribution = (
             pd.read_table(
                 self.path + r"/HELIOS_iterative/contribution.dat",
                 skiprows=1,
@@ -226,11 +225,15 @@ class PhaethonResult:
                 [r"cent_lambda[um]", r"low_int_lambda[um]", r"delta_lambda[um]"], axis=1
             )
             .to_numpy()
+            * units.erg
+            / (units.s * units.cm**3)
         )
-
-        self.contribution = self._contrib / self._contrib.sum(axis=1)[:, None]
-        self.contribution = np.cumsum(np.flip(self.contribution), axis=1)
-        self.contribution = np.flip(self.contribution)
+        self.norm_contrib_per_wavebin = (
+            self.contribution.value / self.contribution.value.sum(axis=1)[:, None]
+        )
+        self.cummulative_contrib = np.flip(
+            np.cumsum(np.flip(self.contribution), axis=1)
+        )
 
     def get_photospheric_pressurelevel(
         self, photosphere_level: float, smoothing_window_size: Union[int, None] = None
@@ -319,36 +322,170 @@ class PhaethonResult:
                 Rescaled secondary eclipse depth.
         """
 
-        # planetary radius
-        if pl_radius is None:
-            _pl_radius_in_m: float = self.star_params["radius"] * units.R_earth.to("m")
-        elif isinstance(pl_radius, AstropyQuantity):
-            _pl_radius_in_m: float = pl_radius.to("m")
-        elif isinstance(pl_radius, (int, float)):
-            warnings.warn(r"'pl_radius' has no unit, assuming Earth radii")
-            _pl_radius_in_m: float = float(pl_radius) * units.R_earth.to("m")
-        else:
-            raise TypeError(r"'pl_radius' must be None, float or an astropy Quantity.")
+        # # planetary radius
+        # if pl_radius is None:
+        #     _pl_radius_in_m: float = self.planet_params["radius"] * units.R_earth.to("m")
+        # elif isinstance(pl_radius, AstropyQuantity):
+        #     _pl_radius_in_m: float = pl_radius.to("m")
+        # elif isinstance(pl_radius, (int, float)):
+        #     warnings.warn(r"'pl_radius' has no unit, assuming Earth radii")
+        #     _pl_radius_in_m: float = float(pl_radius) * units.R_earth.to("m")
+        # else:
+        #     raise TypeError(r"'pl_radius' must be None, float or an astropy Quantity.")
+
+        # # stellar radius
+        # if st_radius is None:
+        #     _st_radius_in_m: float = self.star_params["radius"] * units.R_sun.to("m")
+        # elif isinstance(st_radius, AstropyQuantity):
+        #     _st_radius_in_m: float = st_radius.to("m")
+        # elif isinstance(st_radius, (int, float)):
+        #     warnings.warn(r"'st_radius' has no unit, assuming Solar radii")
+        #     _st_radius_in_m: float = float(st_radius) * units.R_sun.to("m")
+        # else:
+        #     raise TypeError(r"'pl_radius' must be None, float or an astropy Quantity.")
+
+        # # calculate new secondary eclipse depth
+        # fpfs_calculated: ArrayLike = (
+        #     self.spectral_exitance_planet
+        #     / self.spectral_exitance_star
+        #     * (_pl_radius_in_m / _st_radius_in_m) ** 2
+        # ).value
+
+        # Unfortunately, the star's and the planet's spectrum might be computed on different
+        # wavelength grids. Therefore, perform a fit.
+
+        _st_spec_flux = (
+            self.star_spectral_flux(st_radius=st_radius).to("erg / (s * cm)").value
+        )
+        _st_wavl = self.star_wavl.to("cm").value
+        _fit_func = interp1d(
+            _st_wavl, _st_spec_flux, bounds_error=False, fill_value=np.nan
+        )
+        _fitted_star_spec = _fit_func(self.wavl.to("cm").value) * (
+            units.erg / (units.s * units.cm)
+        )
+
+        fpfs_calculated = (
+            self.planet_spectral_flux(pl_radius=pl_radius) / _fitted_star_spec
+        )
+
+        return fpfs_calculated
+
+    def star_spectral_flux(
+        self, st_radius: Optional[Union[float, int, AstropyUnit]] = None
+    ) -> ArrayLike:
+        """
+        Calculates the emitted flux of the star. WARNING: Assumes that variations in the altitude
+        of the photosphere are negligible compared to the radius of the star (which is valid for
+        main sequence stars).
+
+        Parameters
+        ----------
+            st_radius : AstropyQuantity
+                Radius of the star.
+        Returns
+        -------
+            spectral_flux : ArrayLike
+                Spectral flux in erg / s /cm.
+        """
 
         # stellar radius
         if st_radius is None:
-            _st_radius_in_m: float = self.star_params["radius"] * units.R_sun.to("m")
+            _st_radius: float = self.star_params["radius"] * units.R_sun
         elif isinstance(st_radius, AstropyQuantity):
-            _st_radius_in_m: float = st_radius.to("m")
+            _st_radius: float = st_radius
         elif isinstance(st_radius, (int, float)):
             warnings.warn(r"'st_radius' has no unit, assuming Solar radii")
-            _st_radius_in_m: float = float(st_radius) * units.R_sun.to("m")
+            _st_radius: float = float(st_radius) * units.R_sun
+        else:
+            raise TypeError(r"'st_radius' must be None, float or an astropy Quantity.")
+
+        return (
+            4
+            * np.pi
+            * self.spectral_exitance_star.to("erg / (s * cm3)")
+            * _st_radius.to("cm") ** 2
+        )
+
+    def star_total_flux(
+        self, st_radius: Optional[Union[float, int, AstropyUnit]] = None
+    ) -> ArrayLike:
+        """
+        Calculates the total emitted flux of the star. WARNING: Assumes that variations in the
+        altitude of the photosphere are negligible compared to the radius of the star (which is
+        valid for main sequence stars).
+
+        Parameters
+        ----------
+            pl_radius : AstropyQuantity
+                Radius of the planet.
+        Returns
+        -------
+            flux : ArrayLike
+                Total flux in erg / s.
+        """
+
+        return np.sum(self.star_spectral_flux(st_radius=st_radius))
+
+    def planet_spectral_flux(
+        self, pl_radius: Optional[Union[float, int, AstropyUnit]] = None
+    ) -> ArrayLike:
+        """
+        Calculates the emitted flux of the planet. WARNING: Assumes a homogeneous temperature
+        distribution, which might not be correct for planets with little to no heat redistribution!
+
+        Parameters
+        ----------
+            pl_radius : AstropyQuantity
+                Radius of the planet.
+        Returns
+        -------
+            spectral_flux : ArrayLike
+                Spectral flux in erg / s /cm.
+        """
+
+        # planetary radius
+        if pl_radius is None:
+            _pl_radius: float = self.planet_params["radius"] * units.R_earth
+        elif isinstance(pl_radius, AstropyQuantity):
+            _pl_radius: float = pl_radius
+        elif isinstance(pl_radius, (int, float)):
+            warnings.warn(r"'pl_radius' has no unit, assuming Earth radii")
+            _pl_radius: float = float(pl_radius) * units.R_earth
         else:
             raise TypeError(r"'pl_radius' must be None, float or an astropy Quantity.")
 
-        # calculate new secondary eclipse depth
-        fpfs_calculated: ArrayLike = (
-            self.spectral_exitance_planet
-            / self.spectral_exitance_star
-            * (_pl_radius_in_m / _st_radius_in_m) ** 2
-        ).value
+        _altitude_as_grid = np.repeat(
+            self.altitude[1:][:, None], self.contribution.shape[0], axis=1
+        ).T
+        spectral_flux = np.sum(
+            self.contribution.to("erg / (s * cm3)")
+            * 4
+            * np.pi
+            * (_pl_radius.to("cm") + _altitude_as_grid.to("cm")) ** 2,
+            axis=1,
+        )
 
-        return fpfs_calculated
+        return spectral_flux
+
+    def planet_total_flux(
+        self, pl_radius: Optional[Union[float, int, AstropyUnit]] = None
+    ) -> ArrayLike:
+        """
+        Calculates the total emitted flux of the planet. WARNING: Assumes a homogeneous temperature
+        distribution, which might not be correct for planets with little to no heat redistribution!
+
+        Parameters
+        ----------
+            pl_radius : AstropyQuantity
+                Radius of the planet.
+        Returns
+        -------
+            flux : ArrayLike
+                Total flux in erg / s.
+        """
+
+        return np.sum(self.planet_spectral_flux(pl_radius=pl_radius))
 
     def run_cond(
         self,

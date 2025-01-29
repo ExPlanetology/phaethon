@@ -161,7 +161,7 @@ def plot_tau(
     """Plot the optical depth as function of atmospheric height"""
 
     if xlim is None:
-        xlim = [0.16, 60]
+        xlim = [np.amin(result.wavl.to("micron").value), np.amax(result.wavl.to("micron").value)]
 
     # axis already defined? if not, make new
     if axis is None:

@@ -238,7 +238,7 @@ class PhaethonResult:
         )
 
     def get_photospheric_pressurelevel(
-        self, photosphere_level: float, smoothing_window_size: Union[int, None] = None
+        self, photosphere_level: float, smoothing_window_size: Optional[int] = None
     ) -> ArrayLike:
         """
         Photospheric pressure level as funcition of wavelength, defined by the integrated
@@ -277,6 +277,59 @@ class PhaethonResult:
             return moving_average(_photosphere, smoothing_window_size)
         return _photosphere
 
+    def get_photospheric_radius(
+        self,
+        photosphere_level: float,
+        smoothing_window_size: Optional[int] = None,
+        pl_radius: Optional[Union[float, int, AstropyUnit]] = None,
+    ) -> ArrayLike:
+        """
+        Photospheric radius (i.e., radius of the planet) as funcition of wavelength, defined by the
+        integrated transmissivity, i.e. the pressure where the atmosphere has absorbed a given
+        fraction of all incoming light, per wavelength. This fraction is defined in the parameter
+        'photosphere_level'.
+
+        Parameters
+        ----------
+            photosphere_level : float
+                Where to define the photosphere, fraction of incoming light that has to be
+                absorbed to be defined as photosphere.
+            smoothing_window_size : Union[int, None] (optional)
+                Width of smooting window. If None, no smoothing is applied. Default is None.
+            pl_radius : AstropyQuantity
+                Radius of the planet.
+        Returns
+        -------
+            photosphere : ArrayLike
+                Array with pressures that define the photosphere for the given photospheric level.
+                Same size as input array, but optionally smoothed.
+        """
+
+        # planetary radius
+        if pl_radius is None:
+            _pl_radius: float = self.planet_params["radius"] * units.R_earth
+        elif isinstance(pl_radius, AstropyQuantity):
+            _pl_radius: float = pl_radius
+        elif isinstance(pl_radius, (int, float)):
+            warnings.warn(r"'pl_radius' has no unit, assuming Earth radii")
+            _pl_radius: float = float(pl_radius) * units.R_earth
+        else:
+            raise TypeError(r"'pl_radius' must be None, float or an astropy Quantity.")
+
+        # find photosphere
+        _photosphere_pressure = self.get_photospheric_pressurelevel(
+            photosphere_level=0.5
+        )
+        _photopshere_height_fit_func = interp1d(
+            x=self.pressure.to("bar").value,
+            y=self.altitude.to("cm").value,
+        )
+        _photosphere_radius = (
+            _photopshere_height_fit_func(_photosphere_pressure) * units.cm + _pl_radius
+        )
+
+        return _photosphere_radius
+
     def brightness_temp(self) -> ArrayLike:
         """
         Parameters
@@ -312,8 +365,8 @@ class PhaethonResult:
     ) -> ArrayLike:
         """
         Calculates the secondary eclipse depth (planet-to-star flux ratio, fpfs, Fp/Fs, ...) based
-        on the wavelength dependent radius of the planet. 
-        
+        on the wavelength dependent radius of the planet.
+
         NOTE: As the height of the atmosphere becomes non-negligible compared to the planet, the
         apparent size of the planet might become wavelength dependent, an effect not accounted for
         by HELIOS.
@@ -326,11 +379,11 @@ class PhaethonResult:
                 Radius of the star.
             method : str
                 Method to be used to determine the radius of the planet. Either the contribution
-                function or the photosphere (defined where the integrated transmissivity = 0.5, see 
+                function or the photosphere (defined where the integrated transmissivity = 0.5, see
                 `self.integrated_transmissivity`) is used. Allowed values are "photosphere" or"p"
                 for the photospheric method, or "contribution" or "c" for the contribution method.
                 Default is "photosphere".
-                
+
                 NOTE: The contribution function does not yield proper results when parts of the
                 atmosphere are semi-transparent. The photospheric method should be prefered under
                 all circumstances except for comparison.
@@ -432,13 +485,13 @@ class PhaethonResult:
                 Radius of the planet.
             method : str
                 Method to be used to determine the radius of the planet. Either the contribution
-                function or the photosphere (defined where the integrated transmissivity = 0.5, see 
+                function or the photosphere (defined where the integrated transmissivity = 0.5, see
                 `self.integrated_transmissivity`) is used. Allowed values are "photosphere" or"p"
                 for the photospheric method, or "contribution" or "c" for the contribution method.
                 Default is "photosphere".
-                
+
                 NOTE: The contribution function does not yield proper results when parts of the
-                atmosphere are semi-transparent. 
+                atmosphere are semi-transparent.
         Returns
         -------
             spectral_flux : ArrayLike
@@ -468,17 +521,7 @@ class PhaethonResult:
                 axis=1,
             )
         elif method in ["photosphere", "photo", "p"]:
-            _photosphere_pressure = self.get_photospheric_pressurelevel(
-                photosphere_level=0.5
-            )
-            _photopshere_height_fit_func = interp1d(
-                x=self.pressure.to("bar").value,
-                y=self.altitude.to("cm").value,
-            )
-            _photosphere_radius = (
-                _photopshere_height_fit_func(_photosphere_pressure) * units.cm
-                + _pl_radius
-            )
+            _photosphere_radius = self.get_photospheric_radius(photosphere_level=0.5)
 
             spectral_flux = (
                 4 * np.pi * _photosphere_radius**2 * self.spectral_exitance_planet
@@ -503,13 +546,13 @@ class PhaethonResult:
                 Radius of the planet.
             method : str
                 Method to be used to determine the radius of the planet. Either the contribution
-                function or the photosphere (defined where the integrated transmissivity = 0.5, see 
+                function or the photosphere (defined where the integrated transmissivity = 0.5, see
                 `self.integrated_transmissivity`) is used. Allowed values are "photosphere" or"p"
                 for the photospheric method, or "contribution" or "c" for the contribution method.
                 Default is "photosphere".
-                
+
                 NOTE: The contribution function does not yield proper results when parts of the
-                atmosphere are semi-transparent. 
+                atmosphere are semi-transparent.
         Returns
         -------
             flux : ArrayLike

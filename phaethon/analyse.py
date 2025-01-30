@@ -318,7 +318,7 @@ class PhaethonResult:
 
         # find photosphere
         _photosphere_pressure = self.get_photospheric_pressurelevel(
-            photosphere_level=0.5
+            photosphere_level=photosphere_level
         )
         _photopshere_height_fit_func = interp1d(
             x=self.pressure.to("bar").value,

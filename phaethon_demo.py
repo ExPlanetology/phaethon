@@ -6,11 +6,13 @@ Hence, this code will not work.
 If you desire to run the script, please obtain a copy of the MAGMA code and modify it according
 to Seidler et al. 2024.
 """
+import logging
 import pandas as pd
 from typing import Callable, Dict
 from scipy.interpolate import interp1d
 import astropy.units as unit
 
+from phaethon import debug_file_logger
 from phaethon.celestial_objects import (
     CircularOrbitFromPeriod,
     Planet,
@@ -21,7 +23,9 @@ from phaethon.outgassing import VapourEngine
 from phaethon.gas_mixture import IdealGasMixture
 from phaethon.pipeline import PhaethonPipeline
 
-OPACITY_PATH: str = "/path/to/opacities/"
+logger = debug_file_logger()
+
+OPACITY_PATH: str = "/home/fabian/lavaworlds/opacities/lavaplanets/R200_0.1_200_pressurebroad/"
 
 class VapourEngineExample(VapourEngine):
     """ A simple example to an outgassing routine. Only valid for a fixed oxygen fugacity, but
@@ -122,6 +126,7 @@ if __name__=="__main__":
         planetary_system=planetary_system,
         vapour_engine=VapourEngineExample(),
         outdir="output/test/",
+        # opac_species={"SiO", "MgO", "Mg", "Fe", }, # run two iterations
         opac_species={"SiO"},
         scatterers={},
         opacity_path=OPACITY_PATH,
@@ -129,4 +134,4 @@ if __name__=="__main__":
     )
 
     # You might need to adept the architecutre to your system.
-    pipeline.run(cuda_kws={'arch':'sm_86'})
+    pipeline.run(cuda_kws={'arch':'sm_86'}, t_abstol=35)

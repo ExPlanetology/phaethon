@@ -86,8 +86,9 @@ class PhaethonResult:
     transmissivity: ArrayLike = field(init=False)
     integrated_transmissivity: ArrayLike = field(init=False)
     optical_depth: ArrayLike = field(init=False)
-    _contrib: np.ndarray = field(init=False)
     contribution: np.ndarray = field(init=False)
+    cummulative_contrib: np.ndarray = field(init=False)
+    norm_contrib_per_wavebin: np.ndarray = field(init=False)
 
     def __post_init__(self) -> None:
         """
@@ -215,7 +216,7 @@ class PhaethonResult:
         )
 
         # ------------ contribution function -----------#
-        self._contrib = (
+        self.contribution = (
             pd.read_table(
                 self.path + r"/HELIOS_iterative/contribution.dat",
                 skiprows=1,
@@ -226,14 +227,18 @@ class PhaethonResult:
                 [r"cent_lambda[um]", r"low_int_lambda[um]", r"delta_lambda[um]"], axis=1
             )
             .to_numpy()
+            * units.erg
+            / (units.s * units.cm**3)
+        )
+        self.norm_contrib_per_wavebin = (
+            self.contribution.value / self.contribution.value.sum(axis=1)[:, None]
+        )
+        self.cummulative_contrib = np.flip(
+            np.cumsum(np.flip(self.contribution), axis=1)
         )
 
-        self.contribution = self._contrib / self._contrib.sum(axis=1)[:, None]
-        self.contribution = np.cumsum(np.flip(self.contribution), axis=1)
-        self.contribution = np.flip(self.contribution)
-
     def get_photospheric_pressurelevel(
-        self, photosphere_level: float, smoothing_window_size: Union[int, None] = None
+        self, photosphere_level: float, smoothing_window_size: Optional[int] = None
     ) -> ArrayLike:
         """
         Photospheric pressure level as funcition of wavelength, defined by the integrated
@@ -272,6 +277,59 @@ class PhaethonResult:
             return moving_average(_photosphere, smoothing_window_size)
         return _photosphere
 
+    def get_photospheric_radius(
+        self,
+        photosphere_level: float,
+        smoothing_window_size: Optional[int] = None,
+        pl_radius: Optional[Union[float, int, AstropyUnit]] = None,
+    ) -> ArrayLike:
+        """
+        Photospheric radius (i.e., radius of the planet) as funcition of wavelength, defined by the
+        integrated transmissivity, i.e. the pressure where the atmosphere has absorbed a given
+        fraction of all incoming light, per wavelength. This fraction is defined in the parameter
+        'photosphere_level'.
+
+        Parameters
+        ----------
+            photosphere_level : float
+                Where to define the photosphere, fraction of incoming light that has to be
+                absorbed to be defined as photosphere.
+            smoothing_window_size : Union[int, None] (optional)
+                Width of smooting window. If None, no smoothing is applied. Default is None.
+            pl_radius : AstropyQuantity
+                Radius of the planet.
+        Returns
+        -------
+            photosphere : ArrayLike
+                Array with pressures that define the photosphere for the given photospheric level.
+                Same size as input array, but optionally smoothed.
+        """
+
+        # planetary radius
+        if pl_radius is None:
+            _pl_radius: float = self.planet_params["radius"] * units.R_earth
+        elif isinstance(pl_radius, AstropyQuantity):
+            _pl_radius: float = pl_radius
+        elif isinstance(pl_radius, (int, float)):
+            warnings.warn(r"'pl_radius' has no unit, assuming Earth radii")
+            _pl_radius: float = float(pl_radius) * units.R_earth
+        else:
+            raise TypeError(r"'pl_radius' must be None, float or an astropy Quantity.")
+
+        # find photosphere
+        _photosphere_pressure = self.get_photospheric_pressurelevel(
+            photosphere_level=photosphere_level
+        )
+        _photopshere_height_fit_func = interp1d(
+            x=self.pressure.to("bar").value,
+            y=self.altitude.to("cm").value,
+        )
+        _photosphere_radius = (
+            _photopshere_height_fit_func(_photosphere_pressure) * units.cm + _pl_radius
+        )
+
+        return _photosphere_radius
+
     def brightness_temp(self) -> ArrayLike:
         """
         Parameters
@@ -303,9 +361,15 @@ class PhaethonResult:
         self,
         pl_radius: Optional[Union[float, int, AstropyUnit]] = None,
         st_radius: Optional[Union[float, int, AstropyUnit]] = None,
+        method: Literal["photosphere", "p", "contribution", "c"] = "photosphere",
     ) -> ArrayLike:
         """
-        Rescales the secondary eclipse depth to a new planetary radius.
+        Calculates the secondary eclipse depth (planet-to-star flux ratio, fpfs, Fp/Fs, ...) based
+        on the wavelength dependent radius of the planet.
+
+        NOTE: As the height of the atmosphere becomes non-negligible compared to the planet, the
+        apparent size of the planet might become wavelength dependent, an effect not accounted for
+        by HELIOS.
 
         Parameters
         ----------
@@ -313,42 +377,189 @@ class PhaethonResult:
                 Radius of the planet.
             st_radius : AstropyQuantity
                 Radius of the star.
+            method : str
+                Method to be used to determine the radius of the planet. Either the contribution
+                function or the photosphere (defined where the integrated transmissivity = 0.5, see
+                `self.integrated_transmissivity`) is used. Allowed values are "photosphere" or"p"
+                for the photospheric method, or "contribution" or "c" for the contribution method.
+                Default is "photosphere".
+
+                NOTE: The contribution function does not yield proper results when parts of the
+                atmosphere are semi-transparent. The photospheric method should be prefered under
+                all circumstances except for comparison.
         Returns
         -------
             fpfs : ArrayLike
                 Rescaled secondary eclipse depth.
         """
 
-        # planetary radius
-        if pl_radius is None:
-            _pl_radius_in_m: float = self.star_params["radius"] * units.R_earth.to("m")
-        elif isinstance(pl_radius, AstropyQuantity):
-            _pl_radius_in_m: float = pl_radius.to("m")
-        elif isinstance(pl_radius, (int, float)):
-            warnings.warn(r"'pl_radius' has no unit, assuming Earth radii")
-            _pl_radius_in_m: float = float(pl_radius) * units.R_earth.to("m")
-        else:
-            raise TypeError(r"'pl_radius' must be None, float or an astropy Quantity.")
+        # Unfortunately, the star's and the planet's spectrum might be computed on different
+        # wavelength grids. Therefore, perform a fit.
+        _st_spec_flux = (
+            self.star_spectral_flux(st_radius=st_radius).to("erg / (s * cm)").value
+        )
+        _st_wavl = self.star_wavl.to("cm").value
+        _fit_func = interp1d(
+            _st_wavl, _st_spec_flux, bounds_error=False, fill_value=np.nan
+        )
+        _fitted_star_spec = _fit_func(self.wavl.to("cm").value) * (
+            units.erg / (units.s * units.cm)
+        )
+
+        # planet spectral flux
+        _planet_spec = self.planet_spectral_flux(pl_radius=pl_radius, method=method)
+
+        # fpfs, the planet-to-star flux ratio
+        fpfs_calculated = _planet_spec / _fitted_star_spec
+
+        return fpfs_calculated
+
+    def star_spectral_flux(
+        self, st_radius: Optional[Union[float, int, AstropyUnit]] = None
+    ) -> ArrayLike:
+        """
+        Calculates the emitted flux of the star. WARNING: Assumes that variations in the altitude
+        of the photosphere are negligible compared to the radius of the star (which is valid for
+        main sequence stars).
+
+        Parameters
+        ----------
+            st_radius : AstropyQuantity
+                Radius of the star.
+        Returns
+        -------
+            spectral_flux : ArrayLike
+                Spectral flux in erg / s /cm.
+        """
 
         # stellar radius
         if st_radius is None:
-            _st_radius_in_m: float = self.star_params["radius"] * units.R_sun.to("m")
+            _st_radius: float = self.star_params["radius"] * units.R_sun
         elif isinstance(st_radius, AstropyQuantity):
-            _st_radius_in_m: float = st_radius.to("m")
+            _st_radius: float = st_radius
         elif isinstance(st_radius, (int, float)):
             warnings.warn(r"'st_radius' has no unit, assuming Solar radii")
-            _st_radius_in_m: float = float(st_radius) * units.R_sun.to("m")
+            _st_radius: float = float(st_radius) * units.R_sun
+        else:
+            raise TypeError(r"'st_radius' must be None, float or an astropy Quantity.")
+
+        return (
+            4
+            * np.pi
+            * self.spectral_exitance_star.to("erg / (s * cm3)")
+            * _st_radius.to("cm") ** 2
+        )
+
+    def star_total_flux(
+        self, st_radius: Optional[Union[float, int, AstropyUnit]] = None
+    ) -> ArrayLike:
+        """
+        Calculates the total emitted flux of the star. WARNING: Assumes that variations in the
+        altitude of the photosphere are negligible compared to the radius of the star (which is
+        valid for main sequence stars).
+
+        Parameters
+        ----------
+            pl_radius : AstropyQuantity
+                Radius of the planet.
+        Returns
+        -------
+            flux : ArrayLike
+                Total flux in erg / s.
+        """
+
+        return np.sum(self.star_spectral_flux(st_radius=st_radius))
+
+    def planet_spectral_flux(
+        self,
+        pl_radius: Optional[Union[float, int, AstropyUnit]] = None,
+        method: Literal["photosphere", "p", "contribution", "c"] = "photosphere",
+    ) -> ArrayLike:
+        """
+        Calculates the emitted flux of the planet. WARNING: Assumes a homogeneous temperature
+        distribution, which might not be correct for planets with little to no heat redistribution!
+
+        Parameters
+        ----------
+            pl_radius : AstropyQuantity
+                Radius of the planet.
+            method : str
+                Method to be used to determine the radius of the planet. Either the contribution
+                function or the photosphere (defined where the integrated transmissivity = 0.5, see
+                `self.integrated_transmissivity`) is used. Allowed values are "photosphere" or"p"
+                for the photospheric method, or "contribution" or "c" for the contribution method.
+                Default is "photosphere".
+
+                NOTE: The contribution function does not yield proper results when parts of the
+                atmosphere are semi-transparent.
+        Returns
+        -------
+            spectral_flux : ArrayLike
+                Spectral flux in erg / s /cm.
+        """
+
+        # planetary radius
+        if pl_radius is None:
+            _pl_radius: float = self.planet_params["radius"] * units.R_earth
+        elif isinstance(pl_radius, AstropyQuantity):
+            _pl_radius: float = pl_radius
+        elif isinstance(pl_radius, (int, float)):
+            warnings.warn(r"'pl_radius' has no unit, assuming Earth radii")
+            _pl_radius: float = float(pl_radius) * units.R_earth
         else:
             raise TypeError(r"'pl_radius' must be None, float or an astropy Quantity.")
 
-        # calculate new secondary eclipse depth
-        fpfs_calculated: ArrayLike = (
-            self.spectral_exitance_planet
-            / self.spectral_exitance_star
-            * (_pl_radius_in_m / _st_radius_in_m) ** 2
-        ).value
+        if method in ["contrib", "contribution", "c"]:
+            _altitude_as_grid = np.repeat(
+                self.altitude[1:][:, None], self.contribution.shape[0], axis=1
+            ).T
+            spectral_flux = np.sum(
+                self.contribution.to("erg / (s * cm3)")
+                * 4
+                * np.pi
+                * (_pl_radius.to("cm") + _altitude_as_grid.to("cm")) ** 2,
+                axis=1,
+            )
+        elif method in ["photosphere", "photo", "p"]:
+            _photosphere_radius = self.get_photospheric_radius(photosphere_level=0.5)
 
-        return fpfs_calculated
+            spectral_flux = (
+                4 * np.pi * _photosphere_radius**2 * self.spectral_exitance_planet
+            )
+        else:
+            raise ValueError(f"unknown method '{method}'")
+
+        return spectral_flux
+
+    def planet_total_flux(
+        self,
+        pl_radius: Optional[Union[float, int, AstropyUnit]] = None,
+        method: Literal["photosphere", "p", "contribution", "c"] = "photosphere",
+    ) -> ArrayLike:
+        """
+        Calculates the total emitted flux of the planet. WARNING: Assumes a homogeneous temperature
+        distribution, which might not be correct for planets with little to no heat redistribution!
+
+        Parameters
+        ----------
+            pl_radius : AstropyQuantity
+                Radius of the planet.
+            method : str
+                Method to be used to determine the radius of the planet. Either the contribution
+                function or the photosphere (defined where the integrated transmissivity = 0.5, see
+                `self.integrated_transmissivity`) is used. Allowed values are "photosphere" or"p"
+                for the photospheric method, or "contribution" or "c" for the contribution method.
+                Default is "photosphere".
+
+                NOTE: The contribution function does not yield proper results when parts of the
+                atmosphere are semi-transparent.
+        Returns
+        -------
+            flux : ArrayLike
+                Total flux in erg / s.
+        """
+
+        return np.sum(self.planet_spectral_flux(pl_radius=pl_radius, method=method))
 
     def run_cond(
         self,
@@ -369,7 +580,7 @@ class PhaethonResult:
                     Removes elements from layer if they condense, runs from bottom
                     to top of the atmosphere.
             full_output: bool
-                If True, returns Fastchem and output objects.
+                If True, returns FastChem and output objects.
         Returns
         -------
             element_cond_degree : pd.DataFrame

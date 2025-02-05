@@ -114,11 +114,11 @@ class PhaethonPipeline:
         self,
         planetary_system: PlanetarySystem,
         vapour_engine: VapourEngine,
+        fastchem_coupler: FastChemCoupler,
         outdir: str,
         opac_species: set,
         scatterers: set,
         opacity_path: str,
-        path_to_eqconst: Optional[str] = None,
         p_toa: float = 1e-8,
         p_grid_fastchem: np.ndarray = np.logspace(-8, 3, 100),
         t_grid_fastchem: np.ndarray = np.linspace(500, 6000, 100),
@@ -162,11 +162,7 @@ class PhaethonPipeline:
 
         self.planetary_system = planetary_system
         self.vapour_engine = vapour_engine
-        self.fastchem_coupler = (
-            FastChemCoupler(path_to_eqconst=path_to_eqconst)
-            if path_to_eqconst is not None
-            else FastChemCoupler()
-        )
+        self.fastchem_coupler = fastchem_coupler
         self.opacity_path = opacity_path
         self.opac_species = opac_species
         self.scatterers = scatterers

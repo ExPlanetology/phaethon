@@ -22,6 +22,7 @@ from phaethon.celestial_objects import (
 from phaethon.outgassing import VapourEngine
 from phaethon.gas_mixture import IdealGasMixture
 from phaethon.pipeline import PhaethonPipeline
+from phaethon.fastchem_coupling import FastChemCoupler
 
 logger = debug_file_logger()
 
@@ -125,6 +126,7 @@ if __name__=="__main__":
     pipeline = PhaethonPipeline(
         planetary_system=planetary_system,
         vapour_engine=VapourEngineExample(),
+        fastchem_coupler=FastChemCoupler(),
         outdir="output/test/",
         # opac_species={"SiO", "MgO", "Mg", "Fe", }, # run two iterations
         opac_species={"SiO"},

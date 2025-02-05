@@ -53,6 +53,7 @@ class FastChemCoupler:
         path_to_eqconst: Union[str, os.PathLike] = STANDARD_FASTCHEM_GAS_EQCONST,
         path_to_condconst: Union[str, os.PathLike] = STANDARD_FASTCHEM_COND_EQCONST,
         verbosity_level: Literal[0, 1, 2, 3, 4] = 0,
+        ref_elem: str = "O",
     ) -> None:
         """
         Initialize the FastChemCoupler.
@@ -62,12 +63,17 @@ class FastChemCoupler:
             path_to_eqconst : Union[str, PathLike (optional)
                 Path to the equilibrium constants data file. Defaults to the standard FastChem
                 equilibrium constants data file.
-            verbosity_level : Literal[0, 1, 2] (optional)
-                Verbosity level. Defaults to 1.
+            verbosity_level : Literal[0, 1, 2, 3, 4] (optional)
+                Verbosity level. Defaults to 0 (silent).
+            ref_elem : str (optional)
+                Reference element to which the elemental abundances are scaled. Default is 'O'
+                (oxygen), because it will be always present for atmospheres in contact with a magma
+                ocean.
         """
         self.path_to_eqconst = path_to_eqconst
         self.path_to_condconst = path_to_condconst
         self.verbosity_level = verbosity_level
+        self.ref_elem = ref_elem
 
     def get_grid(
         self, pressures: np.ndarray, temperatures: np.ndarray
@@ -105,7 +111,6 @@ class FastChemCoupler:
         outfile_name: str = "chem.dat",
         cond_mode: Optional[Literal["equilibrium", "rainout"]] = None,
         monitor: bool = False,
-        ref_elem: str = "O",
     ) -> Tuple[pyfastchem.FastChem, pyfastchem.FastChemOutput]:
         """
         Perform gas speciation calculation using FastChem.
@@ -125,10 +130,6 @@ class FastChemCoupler:
         monitor : bool, optional
             Whether FastChem should produce a monitor file to check for convergence. Default is
             False.
-        ref_elem : str, optional
-            Reference element to which the elemental abundances are scaled. Default is 'O'
-            (oxygen), because it will be always present for atmospheres in contact with a magma
-            ocean.
 
         Returns
         -------
@@ -138,7 +139,7 @@ class FastChemCoupler:
 
         # pylint: disable=too-many-arguments
 
-        # --------- Is 'outdir' ok? ------#
+        # is 'outdir' ok?
         if not outdir.endswith("/"):
             outdir += "/"
 
@@ -148,7 +149,7 @@ class FastChemCoupler:
         # pass chemistry to fastchem; places a FastChem input file in outdir; needs a reference
         # element to scale the abundances
         vapour.to_fastchem(
-            outfile=outdir + "input_chem.dat", reference_element=ref_elem
+            outfile=outdir + "input_chem.dat", reference_element=self.ref_elem
         )
 
         # create a FastChem object
@@ -183,7 +184,7 @@ class FastChemCoupler:
                 + "'equilibrium' and 'rainout'."
             )
 
-        # run FastChem on the entire p-T structure
+        # run FastChem on the entire P-T structure
         fastchem.calcDensities(input_data, output_data)
 
         # save the monitor output to a file

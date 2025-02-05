@@ -5,6 +5,18 @@ __version__: str = "0.1.0"
 from typing import Optional
 import logging
 
+from phaethon.celestial_objects import (
+    CircularOrbitFromSemiMajorAxis,
+    CircularOrbitFromPeriod,
+    Planet,
+    PlanetarySystem,
+    Star,
+)
+from phaethon.outgassing import VapourEngine
+from phaethon.gas_mixture import IdealGasMixture
+from phaethon.pipeline import PhaethonPipeline
+from phaethon.fastchem_coupling import FastChemCoupler
+
 # Create the package logger.
 # https://docs.python.org/3/howto/logging.html#library-config
 logger: logging.Logger = logging.getLogger(__name__)

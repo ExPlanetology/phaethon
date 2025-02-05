@@ -52,7 +52,7 @@ class FastChemCoupler:
         self,
         path_to_eqconst: Union[str, os.PathLike] = STANDARD_FASTCHEM_GAS_EQCONST,
         path_to_condconst: Union[str, os.PathLike] = STANDARD_FASTCHEM_COND_EQCONST,
-        verbosity_level: Literal[0, 1, 2, 3, 4] = 2,
+        verbosity_level: Literal[0, 1, 2, 3, 4] = 0,
     ) -> None:
         """
         Initialize the FastChemCoupler.

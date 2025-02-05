@@ -14,16 +14,16 @@ import astropy.units as unit
 import pandas as pd
 
 from phaethon import (
-    debug_file_logger,
-    CircularOrbitFromPeriod,
-    Planet,
-    PlanetarySystem,
     Star,
+    Planet,
+    CircularOrbitFromPeriod,
+    PlanetarySystem,
     VapourEngine,
-    IdealGasMixture,
     PhaethonPipeline,
     FastChemCoupler,
+    debug_file_logger,
 )
+from phaethon.gas_mixture import IdealGasMixture
 
 logger = debug_file_logger()
 
@@ -124,6 +124,8 @@ if __name__ == "__main__":
     planetary_system = PlanetarySystem(
         star=star, planet=planet, orbit=CircularOrbitFromPeriod(period=1 * unit.day)
     )
+
+    # To evaluate the model at a given irradiation temperature, the AU needs to be adjusted
     planetary_system.set_semimajor_axis_from_pl_temp(t_planet=2500 * unit.K)
 
     pipeline = PhaethonPipeline(
@@ -131,7 +133,6 @@ if __name__ == "__main__":
         vapour_engine=VapourEngineExample(),
         fastchem_coupler=FastChemCoupler(),
         outdir="output/test/",
-        # opac_species={"SiO", "MgO", "Mg", "Fe", }, # run two iterations
         opac_species={"SiO"},
         scatterers={},
         opacity_path=OPACITY_PATH,

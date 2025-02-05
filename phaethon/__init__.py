@@ -6,14 +6,13 @@ from typing import Optional
 import logging
 
 from phaethon.celestial_objects import (
+    Star,
+    Planet,
     CircularOrbitFromSemiMajorAxis,
     CircularOrbitFromPeriod,
-    Planet,
     PlanetarySystem,
-    Star,
 )
 from phaethon.outgassing import VapourEngine
-from phaethon.gas_mixture import IdealGasMixture
 from phaethon.pipeline import PhaethonPipeline
 from phaethon.fastchem_coupling import FastChemCoupler
 

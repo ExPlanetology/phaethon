@@ -97,6 +97,12 @@ class Star:
         _dict = self.__dict__.copy()
         info_dict = {}
         for key, value in _dict.items():
+
+            # Do not store raw file path. TODO: because it might not be a string, JSON cannot
+            # handle it (called by pipeline.info_dump); fix this?
+            if key == "source_file":
+                continue
+
             if isinstance(value, (AstropyUnit, AstropyQuantity)):
                 info_dict[key] = value.value
             elif isinstance(value, (np.ndarray, Callable)):

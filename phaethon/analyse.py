@@ -123,6 +123,28 @@ class PhaethonResult:
         self.pressure = df[r"press.[10^-6bar]"].to_numpy() / 1e6 * units.bar
         self.altitude = df[r"altitude[cm]"].to_numpy() * units.cm
 
+        # ------- gas properties inferred by HELIOS ----- #
+        df = pd.read_csv(
+            self.path + r"HELIOS_iterative/colmass_mu_cp_kappa_entropy.dat",
+            sep="\s+",
+            skiprows=2,
+            index_col=0,
+            names=[
+                "layer",
+                "pressure",
+                "delta column mass",
+                "mmw",
+                "heat cap.",
+                "adiabat",
+                "entropy",
+            ],
+        )
+        self._helios_mmw = df["mmw"] * units.g / units.mol
+        self.adiabatic_coefficient = df["adiabat"]
+        self.heat_cap = (
+            df["heat cap."] * units.erg / units.mol / units.K
+        )  # erg mol^-1 K^-1
+
         # ------ load chemistry -----#
         filename = self.path + r"chem_profile.dat"
         self.chem = pd.read_csv(filename, sep=r"\s+")

@@ -21,10 +21,12 @@ from typing import Literal, Optional
 import warnings
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1.inset_locator import (
     inset_axes,
 )
 from labellines import labelLines
+import cmcrameri
 
 from phaethon.analyse import PhaethonResult
 
@@ -67,11 +69,14 @@ def plot_chem(
 
     # create axis (or not) ...
     if axis is None:
-        fig, ax = plt.subplots(1, 1)
+        fig, (ax, ax_legend) = plt.subplots(1, 2, width_ratios=[1.0, 0.2])
+        ax_legend.axis("off")
     else:
         ax = axis
+        ax_legend = ax
 
     if len(molec_styles) > 0:
+        legend_handles = []
         for species in molec_styles.keys():
             if "_and_" in species:
                 species_list: list = species.split("_and_")
@@ -96,11 +101,22 @@ def plot_chem(
                         np.flip(pressure[mask]),
                         label=molec_styles[species].get("label", species),
                         color=molec_styles[species].get("color", None),
-                        ls=molec_styles[species].get("ls", "solid"),
-                        lw=molec_styles[species].get("lw", lw),
+                    )
+
+                    legend_handles.append(
+                        Line2D(
+                            [0],
+                            [0],
+                            label=molec_styles[species].get("label", species),
+                            color=molec_styles[species].get("color", None),
+                            ls=molec_styles[species].get("ls", "solid"),
+                            lw=molec_styles[species].get("lw", lw),
+                        )
                     )
     else:
-        for species in result.species:
+        legend_handles = []
+        colors = [cmcrameri.cm.batlowS(i) for i in range(len(result.species))]
+        for species, color in zip(result.species, colors):
             mixing_ratio = result.chem[species].to_numpy()
             if np.any(mixing_ratio >= min(mixrat_limits)):
                 mask = (mixing_ratio >= min(mixrat_limits)) * (
@@ -116,8 +132,11 @@ def plot_chem(
                     np.flip(_mixing_ratio[mask]),
                     np.flip(pressure[mask]),
                     label=species,
-                    lw=lw,
-                    ls="solid",
+                    color=color,
+                )
+
+                legend_handles.append(
+                    Line2D([0], [0], label=species, color=color, ls="solid", lw=2)
                 )
 
     if use_mpl_log:
@@ -133,8 +152,13 @@ def plot_chem(
     # limits
     ax.set_ylim(ax.get_ylim()[::-1])
 
-    ax.legend(**legend_kws)
+    # legend
+    legend = ax_legend.legend(handles=legend_handles, frameon=False, **legend_kws)
+
+    # grid
     ax.grid(True, ls="dotted", color="lightgrey")
+
+    # labellines
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         if use_labellines:
@@ -143,8 +167,55 @@ def plot_chem(
             except:
                 pass
 
+    # Figure is not part of a larger plot
     if axis is None:
-        fig.show()
+
+        # Function to highlight the hovered line in the legend and the plot
+        def on_move(event):
+            # Check if the mouse is over the legend
+            if legend.get_window_extent().contains(event.x, event.y):
+                # Iterate over legend items
+                for i, (text, line) in enumerate(zip(legend.texts, ax.lines)):
+                    # Get the legend's label text and line artist
+                    legend_line = legend.legend_handles[i]
+                    label = text.get_text()
+
+                    # Check if the mouse is over the legend handle
+                    if legend_line.contains(event)[0]:
+                        # Highlight the line in the plot
+                        line.set_linewidth(4)
+                        line.set_alpha(1.0)
+                        line.set_zorder(3)
+
+                        # Highlight the line in the legend
+                        legend_line.set_linewidth(4)  # Make it thicker
+                        text.set_fontweight("bold")  # Make the label bold
+                    else:
+                        # Reset the lines to their normal state when not hovered
+                        legend_line.set_linewidth(2)
+                        line.set_alpha(0.3)
+                        line.set_zorder(0)
+                        text.set_fontweight("normal")
+
+                        # Reset the plot line style
+                        line.set_linewidth(2)
+
+                # Redraw the figure to update the changes
+                fig.canvas.draw_idle()
+            else:
+                for i, (text, line) in enumerate(zip(legend.texts, ax.lines)):
+                    line.set_alpha(1.0)
+                    line.set_linewidth(2.0)
+
+                # Redraw the figure to update the changes
+                fig.canvas.draw_idle()
+
+        # Connect the mouse motion event to the on_move function
+        fig.canvas.mpl_connect("motion_notify_event", on_move)
+
+        # Show
+        plt.tight_layout()
+        plt.show()
 
 
 def plot_tau(
@@ -161,7 +232,10 @@ def plot_tau(
     """Plot the optical depth as function of atmospheric height"""
 
     if xlim is None:
-        xlim = [np.amin(result.wavl.to("micron").value), np.amax(result.wavl.to("micron").value)]
+        xlim = [
+            np.amin(result.wavl.to("micron").value),
+            np.amax(result.wavl.to("micron").value),
+        ]
 
     # axis already defined? if not, make new
     if axis is None:

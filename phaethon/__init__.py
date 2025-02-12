@@ -14,7 +14,7 @@ from phaethon.celestial_objects import (
 )
 from phaethon.outgassing import VapourEngine
 from phaethon.pipeline import PhaethonPipeline
-from phaethon.fastchem_coupling import FastChemCoupler
+from phaethon.fastchem_coupling import FastChemCoupler, CondensationMode
 
 # Create the package logger.
 # https://docs.python.org/3/howto/logging.html#library-config

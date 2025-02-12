@@ -18,10 +18,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 from importlib import resources
+import tempfile
 import logging
 import os
-from typing import Literal, Tuple, Union, Optional
+from enum import Enum
+from typing import Literal, Tuple, Union, Optional, Dict
 import numpy as np
+import pandas as pd
 
 # pylint: disable=c-extension-no-member
 import pyfastchem
@@ -35,11 +38,32 @@ from phaethon.save_output import (
 
 logger = logging.getLogger(__name__)
 
+# ================================================================================================
+#   CONSTANTS
+# ================================================================================================
+
 STANDARD_FASTCHEM_GAS_EQCONST = resources.files("phaethon.data") / "FastChem_logK.dat"
 STANDARD_FASTCHEM_COND_EQCONST = (
     resources.files("phaethon.data") / "FastChem_logK_condensates.dat"
 )
 
+# ================================================================================================
+#   ENUMS
+# ================================================================================================
+
+class CondensationMode(Enum):
+    """
+    Encapsualtes the descrete condensation modes allowed in FastChem
+    """
+
+    # The enum values don't mean much except for explanation :)
+    NO_COND = "no condensation"
+    EQ_COND = "equilibrium condensation"
+    RAINOUT = "rain-out of condensates"
+
+# ================================================================================================
+#   CLASSES
+# ================================================================================================
 
 class FastChemCoupler:
     """
@@ -54,6 +78,7 @@ class FastChemCoupler:
         path_to_condconst: Union[str, os.PathLike] = STANDARD_FASTCHEM_COND_EQCONST,
         verbosity_level: Literal[0, 1, 2, 3, 4] = 0,
         ref_elem: str = "O",
+        cond_mode: CondensationMode = CondensationMode.NO_COND,
     ) -> None:
         """
         Initialize the FastChemCoupler.
@@ -69,11 +94,24 @@ class FastChemCoupler:
                 Reference element to which the elemental abundances are scaled. Default is 'O'
                 (oxygen), because it will be always present for atmospheres in contact with a magma
                 ocean.
+            cond_mode : str
+                Condensation mode, allowed are:
+                    "none"
+                        --> no condensation
+                    "equilibrium"
+                        --> equilbrium condensation, i.e. elemental composition is
+                            conserved in every atmospheric layer.
+                    "rainout":
+                        --> if condensates form, they precipitate and remove parts of
+                            the elemental abundances. Currently, its use is discouraged,
+                            as it does not work properly with the current FastChem <-> HELIOS
+                            coupling.
         """
         self.path_to_eqconst = path_to_eqconst
         self.path_to_condconst = path_to_condconst
         self.verbosity_level = verbosity_level
         self.ref_elem = ref_elem
+        self.cond_mode = cond_mode
 
     def get_grid(
         self, pressures: np.ndarray, temperatures: np.ndarray
@@ -106,11 +144,11 @@ class FastChemCoupler:
         vapour: IdealGasMixture,
         pressures: np.ndarray,
         temperatures: np.ndarray,
-        outdir: str,
         *,
+        outdir: str,
         outfile_name: str = "chem.dat",
-        cond_mode: Optional[Literal["equilibrium", "rainout"]] = None,
         monitor: bool = False,
+        cond_mode: Optional[CondensationMode] = None,
     ) -> Tuple[pyfastchem.FastChem, pyfastchem.FastChemOutput]:
         """
         Perform gas speciation calculation using FastChem.
@@ -167,22 +205,23 @@ class FastChemCoupler:
         input_data.temperature = temperatures
         input_data.pressure = pressures
 
+        # condensation mode
         if cond_mode is None:
-            input_data.equilibrium_condensation = False
-            input_data.rainout_condensation = False
-        elif cond_mode == "equilibrium":
-            print("    cond_mode: equilibrium")
-            input_data.equilibrium_condensation = True
-            input_data.rainout_condensation = False
-        elif cond_mode == "rainout":
-            print("    cond_mode: rainout")
-            input_data.equilibrium_condensation = False
-            input_data.rainout_condensation = True
-        else:
-            raise NotImplementedError(
-                f"cond_mode '{cond_mode}' is not implemented. Valid options are None, "
-                + "'equilibrium' and 'rainout'."
-            )
+            cond_mode = self.cond_mode
+
+        if not isinstance(cond_mode, CondensationMode):
+                raise TypeError("'cond_mode' must be of type 'phaethon.CondensationMode'!")
+
+        match cond_mode:
+            case CondensationMode.NO_COND:
+                input_data.equilibrium_condensation = False
+                input_data.rainout_condensation = False
+            case CondensationMode.EQ_COND:
+                input_data.equilibrium_condensation = True
+                input_data.rainout_condensation = False
+            case CondensationMode.RAINOUT:
+                input_data.equilibrium_condensation = False
+                input_data.rainout_condensation = True
 
         # run FastChem on the entire P-T structure
         fastchem.calcDensities(input_data, output_data)
@@ -226,3 +265,117 @@ class FastChemCoupler:
         )
 
         return fastchem, output_data
+
+    def pointcalc(
+        self,
+        vapour: Union[Dict[str, float], pd.Series, IdealGasMixture],
+        pressure: float,
+        temperature: float,
+        *,
+        verbosity_level: Literal[0, 1, 2, 3, 4] = 0,
+        ref_elem: str = "O",
+        cond_mode: Optional[CondensationMode] = None,
+    ) -> IdealGasMixture:
+        """
+        Equilibrates a gas composition at a singe pressure and temperature and returns its result
+        as an IdealGasMixture.
+        """
+
+        # build vapour
+        if isinstance(vapour, IdealGasMixture):
+            starting_gas: IdealGasMixture = vapour
+        else:
+            starting_gas: IdealGasMixture = IdealGasMixture(p_bar=vapour)
+
+        # Since FastChem operates with physical in- and output files, we have to generate temporary
+        # files for on-the-fly calculations.
+        with tempfile.TemporaryDirectory() as tmpdir:
+
+            # pass chemistry to fastchem; places a FastChem input file in outdir; needs a reference
+            # element to scale the abundances
+            starting_gas.to_fastchem(
+                outfile=tmpdir + "input_chem.dat", reference_element=self.ref_elem
+            )
+
+            # create a FastChem object
+            fastchem = pyfastchem.FastChem(
+                tmpdir + "input_chem.dat",
+                str(self.path_to_eqconst),
+                str(self.path_to_condconst),
+                self.verbosity_level,
+            )
+
+            # create the input and output structures for FastChem
+            input_data = pyfastchem.FastChemInput()
+            output_data = pyfastchem.FastChemOutput()
+
+            input_data.temperature = np.array([temperature], dtype=float)
+            input_data.pressure = np.array([pressure], dtype=float)
+
+            # condensation mode
+            if cond_mode is None:
+                cond_mode = self.cond_mode
+
+            if not isinstance(cond_mode, CondensationMode):
+                raise TypeError("'cond_mode' must be of type 'phaethon.CondensationMode'!")
+
+            match cond_mode:
+                case CondensationMode.NO_COND:
+                    input_data.equilibrium_condensation = False
+                    input_data.rainout_condensation = False
+                case CondensationMode.EQ_COND:
+                    input_data.equilibrium_condensation = True
+                    input_data.rainout_condensation = False
+                case CondensationMode.RAINOUT:
+                    input_data.equilibrium_condensation = False
+                    input_data.rainout_condensation = True
+
+            # run FastChem on the entire P-T structure
+            fastchem.calcDensities(input_data, output_data)
+
+            # save gas speciation file
+            saveChemistryOutput(
+                tmpdir + "gas_chem.dat",
+                np.array(input_data.temperature),
+                np.array(input_data.pressure),
+                output_data.total_element_density,
+                output_data.mean_molecular_weight,
+                output_data.number_densities,
+                fastchem,
+            )
+
+            # # TODO: Maybe also read condensation?
+            # # save condensation file
+            # saveCondOutput(
+            #     tmpdir + "cond_chem.dat",
+            #     temperatures,
+            #     pressures,
+            #     output_data.element_cond_degree,
+            #     output_data.number_densities_cond,
+            #     fastchem,
+            #     output_species=None,
+            #     additional_columns=None,
+            #     additional_columns_desc=None,
+            # )
+
+            # read gas molfractions from FastChem output
+            full_frame: pd.DataFrame = pd.read_csv(tmpdir + "gas_chem.dat", sep=r"\s+")
+            full_frame.rename(
+                columns={
+                    r"#p(bar)": r"P(bar)",
+                    r"#P(bar)": r"P(bar)",
+                    r"T(k)": r"T(K)",
+                },
+                errors="ignore",
+                inplace=True,
+            )
+
+            species: List[str] = list(
+                full_frame.drop(
+                    [r"T(K)", r"P(bar)", r"n_<tot>(cm-3)", r"n_g(cm-3)", r"m(u)"], axis=1
+                ).keys()
+            )
+
+            gas_frame: pd.DataFrame = full_frame[species]
+
+        return IdealGasMixture(p_bar=gas_frame.iloc[0] * pressure)

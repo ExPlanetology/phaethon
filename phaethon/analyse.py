@@ -35,7 +35,7 @@ from astropy import units
 from astropy.units.core import Unit as AstropyUnit
 from astropy.units.quantity import Quantity as AstropyQuantity
 
-from phaethon.fastchem_coupling import FastChemCoupler
+from phaethon.fastchem_coupling import FastChemCoupler, CondensationMode
 
 logger = logging.getLogger(__name__)
 
@@ -585,7 +585,7 @@ class PhaethonResult:
 
     def run_cond(
         self,
-        cond_mode: Literal["none", "equilibrium", "rainout"],
+        cond_mode: CondensationMode,
         full_output: bool = False,
     ):
         """

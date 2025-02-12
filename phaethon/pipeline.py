@@ -120,7 +120,7 @@ class PhaethonPipeline:
         scatterers: set,
         opacity_path: str,
         p_toa: float = 1e-8,
-        p_grid_fastchem: np.ndarray = np.logspace(-8, 3, 100),
+        p_grid_fastchem: np.ndarray = np.logspace(-8, 3, 100), # TODO: fix this one because some atmospheres might be larger than expected; maybe dynamically generate grid?
         t_grid_fastchem: np.ndarray = np.linspace(500, 6000, 100),
         nlayer: int = 50,
     ) -> None:
@@ -231,7 +231,6 @@ class PhaethonPipeline:
         self,
         t_abstol: float = 35.0,
         param_file: str = DEFAULT_PARAM_FILE,  # TODO: implement correct path type in type hint!
-        cond_mode: Optional[Literal["equilibrium", "rainout"]] = None,
         cuda_kws: Optional[dict] = None,
         logfile_name: str = "phaethon.log"
     ) -> None:
@@ -245,11 +244,6 @@ class PhaethonPipeline:
                 ΔT allowed between t_melt and t_boa, in K.
             param_file : str
                 File containing the HELIOS parameters.
-            cond_mode : Optional[Literal['equilibrium', 'rainout']]
-                Condensation mode, allowed values:
-                    None: no condensation
-                    "equilibrium": equilibrium condensation
-                    "rainout": if condensates form, they precipitate
             cuda_kws : dict
                 Dictionary containing additional args (e.g., compiler flags) for nvcc, the CUDA
                 compiler. Called when compiling the HELIOS kernels on-the-fly.
@@ -289,9 +283,7 @@ class PhaethonPipeline:
             logger.info(f"Entering iteration No. {iteration_counter}")
 
             # run full radiative transfer forward model
-            delta_t_melt = self._single_forward_iteration(
-                t_melt=self.t_melt, cond_mode=cond_mode
-            )
+            delta_t_melt = self._single_forward_iteration(t_melt=self.t_melt)
 
             # append info for bayesian optimizer (and for convergence plots)
             self.tmelt_trace.append(self.t_melt)
@@ -357,7 +349,7 @@ class PhaethonPipeline:
         self.info_dump()
 
         # final fastchem run, generate atmospheric abunance profile
-        self._final_fastchem_run(cond_mode=cond_mode)
+        self._final_fastchem_run()
 
         end: float = time.time()
         logger.info(f"Finished. Duration: {(end - start) / 60.} min")
@@ -366,26 +358,11 @@ class PhaethonPipeline:
     # SEMI-PRIVATE METHODS
     # ============================================================================================
 
-    def _final_fastchem_run(self, cond_mode: str) -> None:
+    def _final_fastchem_run(self) -> None:
         """
         Performs a final FastChem run along the computed P-T-profile in order to obtain the
         atmospheric speciations as function of pressure/altitude. Allows for using various
         condensation modes.
-
-        Parameters
-        ----------
-            cond_mode : str
-                Condensation mode, allowed are:
-                    "none"
-                        --> no condensation
-                    "equilibrium"
-                        --> equilbrium condensation, i.e. elemental composition is
-                            conserved in every atmospheric layer.
-                    "rainout":
-                        --> if condensates form, they precipitate and remove parts of
-                            the elemental abundances. Currently, its use is discouraged,
-                            as it does not work properly with the current FastChem <-> HELIOS
-                            coupling.
         """
         df = pd.read_csv(self.outdir + "HELIOS_iterative/tp.dat", header=1, sep=r"\s+")
         self.fastchem_coupler.run_fastchem(
@@ -394,14 +371,9 @@ class PhaethonPipeline:
             temperatures=df["temp.[K]"].to_numpy(float),
             outdir=self.outdir,
             outfile_name="chem_profile.dat",  # DO NOT CHANGE - PhaethonResult searches it!
-            cond_mode=cond_mode,
         )
 
-    def _single_forward_iteration(
-        self,
-        t_melt: float,
-        cond_mode: Optional[Literal["equilibrium", "rainout"]] = None,
-    ) -> float:
+    def _single_forward_iteration(self, t_melt: float) -> float:
         """
         Performs a single forward iteration: vapour -> fastchem -> helios
 
@@ -409,18 +381,6 @@ class PhaethonPipeline:
         ----------
             t_melt : float
                 Melt temperature, in K.
-            cond_mode : str
-                Condensation mode, allowed are:
-                    "none"
-                        --> no condensation
-                    "equilibrium"
-                        --> equilbrium condensation, i.e. elemental composition is
-                            conserved in every atmospheric layer.
-                    "rainout":
-                        --> if condensates form, they precipitate and remove parts of
-                            the elemental abundances. Currently, its use is discouraged,
-                            as it does not work properly with the current FastChem <-> HELIOS
-                            coupling.
         Returns
         -------
             delta_t : float
@@ -447,7 +407,6 @@ class PhaethonPipeline:
             temperatures=self._t_grid_fastchem,
             outdir=self.outdir,
             outfile_name="chem.dat",  # DO NOT CHANGE - HELIOS searches for "chem.dat"
-            cond_mode=cond_mode,
         )
 
         # solve radiative transfer

@@ -59,24 +59,26 @@ DEFAULT_PARAM_FILE = (
 def closest_smaller_value(x: float, arr: ArrayLike):
     # Filter out values greater than or equal to x
     smaller_values = [value for value in arr if value < x]
-    
+
     # If there are no values smaller than x, return minimum of array
     if not smaller_values:
         return min(arr)
-    
+
     # Return the maximum of the smaller values (which will be the closest)
     return max(smaller_values)
+
 
 def closest_larger_value(x: float, arr: ArrayLike):
     # Filter out values greater than or equal to x
     smaller_values = [value for value in arr if value > x]
-    
+
     # If there are no values smaller than x, return minimum of array
     if not smaller_values:
         return max(arr)
-    
+
     # Return the maximum of the smaller values (which will be the closest)
     return min(smaller_values)
+
 
 # ================================================================================================
 #   CLASSES
@@ -120,8 +122,6 @@ class PhaethonPipeline:
         scatterers: set,
         opacity_path: str,
         p_toa: float = 1e-8,
-        p_grid_fastchem: np.ndarray = np.logspace(-8, 3, 100), # TODO: fix this one because some atmospheres might be larger than expected; maybe dynamically generate grid?
-        t_grid_fastchem: np.ndarray = np.linspace(500, 6000, 100),
         nlayer: int = 50,
     ) -> None:
         """
@@ -171,9 +171,6 @@ class PhaethonPipeline:
         self.p_boa = None
         self.t_boa = self.planetary_system.planet.temperature.value
         self.t_melt = None
-        self._p_grid_fastchem, self._t_grid_fastchem = self.fastchem_coupler.get_grid(
-            pressures=p_grid_fastchem, temperatures=t_grid_fastchem
-        )
 
         # part of advanced options
         self.nlayer = nlayer  # No. of atmospheric layers
@@ -232,7 +229,7 @@ class PhaethonPipeline:
         t_abstol: float = 35.0,
         param_file: str = DEFAULT_PARAM_FILE,  # TODO: implement correct path type in type hint!
         cuda_kws: Optional[dict] = None,
-        logfile_name: str = "phaethon.log"
+        logfile_name: str = "phaethon.log",
     ) -> None:
         """
         Equilibrates an atmosphere with the underlying (magma) ocean and solves the
@@ -302,7 +299,9 @@ class PhaethonPipeline:
             iteration_counter += 1
 
             if optimizer is None:
-                if self.t_boa < min(self.tmelt_trace) or self.t_boa > max(self.tmelt_trace):
+                if self.t_boa < min(self.tmelt_trace) or self.t_boa > max(
+                    self.tmelt_trace
+                ):
                     self.t_melt = self.t_boa
                 else:
                     # _search_range: Tuple[float] = (
@@ -314,20 +313,26 @@ class PhaethonPipeline:
                         max(self.tmelt_trace) + 1.5 * t_abstol,
                     )
 
-                    logger.info(f"Initialising Bayesian optimizer with range {_search_range}")
+                    logger.info(
+                        f"Initialising Bayesian optimizer with range {_search_range}"
+                    )
 
                     optimizer = bayes_opt.BayesianOptimization(
                         f=None,
-                        pbounds={"t_melt":_search_range},
+                        pbounds={"t_melt": _search_range},
                         # bounds_transformer = SequentialDomainReductionTransformer(minimum_window=t_abstol * 2)
-                        acquisition_function=bayes_opt.acquisition.ExpectedImprovement(xi=0.0)
+                        acquisition_function=bayes_opt.acquisition.ExpectedImprovement(
+                            xi=0.0
+                        ),
                     )
-                    
+
                     # warm start for the optimizer by passing it the previous points
-                    for _tmelt, _delta_t in zip(self.tmelt_trace, self.delta_tmelt_trace):
+                    for _tmelt, _delta_t in zip(
+                        self.tmelt_trace, self.delta_tmelt_trace
+                    ):
                         optimizer.register(
-                            params={'t_melt':_tmelt},
-                            target=-_delta_t, # negative because the optimizer maximises f
+                            params={"t_melt": _tmelt},
+                            target=-_delta_t,  # negative because the optimizer maximises f
                         )
 
                     # suggest the next t_melt
@@ -336,13 +341,12 @@ class PhaethonPipeline:
                     self.t_melt = next_point["t_melt"]
             else:
                 optimizer.register(
-                    params={'t_melt':self.t_melt},
-                    target=-delta_t_melt,   # negative because the optimizer maximises f
+                    params={"t_melt": self.t_melt},
+                    target=-delta_t_melt,  # negative because the optimizer maximises f
                 )
                 next_point = optimizer.suggest()
                 logger.info(f"   suggested new point: {next_point}")
                 self.t_melt = next_point["t_melt"]
-
 
         # store output and metadata
         self._write_helios_output()
@@ -400,11 +404,15 @@ class PhaethonPipeline:
             )
         self._keeper.p_boa = float(self.atmo.p_total) / 1e-6  # weird HELIOS scaling
 
-        # FastChem, generates look-up table for HELIOS in `outdir`. Direclty deposits files there.
+        # chemistry look-up tables with FastChem
+        p_grid, t_grid = self.fastchem_coupler.get_grid(
+            pressures=np.logspace(np.log10(self.p_toa), np.log10(self.atmo.p_total), 200),
+            temperatures=np.linspace(10, 8000, 200),
+        )
         self.fastchem_coupler.run_fastchem(
             vapour=self.atmo,
-            pressures=self._p_grid_fastchem,
-            temperatures=self._t_grid_fastchem,
+            pressures=p_grid,
+            temperatures=t_grid,
             outdir=self.outdir,
             outfile_name="chem.dat",  # DO NOT CHANGE - HELIOS searches for "chem.dat"
         )

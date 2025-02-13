@@ -484,7 +484,6 @@ class PhaethonPipeline:
         self,
         param_file: str,
         run_type: Literal["iterative", "post-processing"] = "iterative",
-        opacity_mixing: Literal["premixed", "on-the-fly"] = "on-the-fly",
         cuda_kws: dict = None,
     ) -> None:
         """
@@ -497,9 +496,6 @@ class PhaethonPipeline:
         run_type : str, optional
             The type of run to perform. Can be 'iterative' or 'post-processing'. Default is
             'iterative'.
-        opacity_mixing : str, optional
-            The method for opacity mixing. Can be 'on-the-fly' or 'premixed'. Default is
-            'on-the-fly'.
         cuda_kws : dict, optional
             Additional keywords for CUDA configuration.
         """
@@ -534,12 +530,16 @@ class PhaethonPipeline:
         # Specify opacity path
         self._reader.opacity_path = self.opacity_path
 
-        # Pass pressure and convert to HELIOS units (10⁻⁶ bar)
+        # Pressure & chemistry; convert to HELIOS units (10⁻⁶ bar)
         self._keeper.p_toa = self.p_toa / 1e-6
         self._reader.fastchem_path = self.outdir
 
-        # Handle opacity mixing
-        self._handle_opacity_mixing(self._reader, self._keeper, opacity_mixing)
+        # Opacities; strictly use on-the-fly mixing, as phaethon is not intended to be used with
+        # premixed opacities; otherwise, use "reader.load_premixed_opacity_table(keeper)"
+        self._keeper.opacity_mixing = "on-the-fly"
+        self._reader.read_species_file(self._keeper)
+        self._reader.read_species_opacities(self._keeper)
+        self._reader.read_species_scat_cross_sections(self._keeper)
 
         # Read kappa table or use constant kappa
         self._reader.read_kappa_table_or_use_constant_kappa(self._keeper)
@@ -593,37 +593,6 @@ class PhaethonPipeline:
         if keeper.run_type == "post-processing":
             reader.temp_path = f"{self.outdir}/HELIOS_iterative/tp.dat"
             reader.temp_format = "helios"
-
-    def _handle_opacity_mixing(
-        self,
-        reader: read.Read,
-        keeper: quant.Store,
-        opacity_mixing: Literal["premixed", "on-the-fly"],
-    ) -> None:
-        """
-        Handles the opacity mixing method.
-
-        Parameters
-        ----------
-            reader : read.Read
-                A HELIOS object for reading-in the run-parameters.
-            keeper : quant.Store
-                A HELIOS object storing all runtime parameters.
-            opacity_mixing : str
-                Method of opacity mising.
-
-        """
-        keeper.opacity_mixing = opacity_mixing
-        if keeper.opacity_mixing == "premixed":
-            reader.load_premixed_opacity_table(keeper)
-        elif keeper.opacity_mixing == "on-the-fly":
-            reader.read_species_file(keeper)
-            reader.read_species_opacities(keeper)
-            reader.read_species_scat_cross_sections(keeper)
-        else:
-            raise NotImplementedError(
-                f"Opacity mixing method '{opacity_mixing}' is not implemented."
-            )
 
     def _configure_stellar_spectrum(self, reader: read.Read) -> None:
         """

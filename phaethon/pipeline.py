@@ -1,20 +1,23 @@
+#
+# Copyright 2024-2025 Fabian L. Seidler
+#
+# This file is part of Phaethon.
+#
+# Phaethon is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or any later version.
+#
+# Phaethon is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with Phaethon.  If not, see <https://www.gnu.org/licenses/>.
+#
 """
 The main pipeline that streamlines the computation of the structure of an outgassed atmosphere.
-
-Copyright 2024 Fabian L. Seidler
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 import importlib
@@ -406,7 +409,9 @@ class PhaethonPipeline:
 
         # chemistry look-up tables with FastChem
         p_grid, t_grid = self.fastchem_coupler.get_grid(
-            pressures=np.logspace(np.log10(self.p_toa), np.log10(self.atmo.p_total), 200),
+            pressures=np.logspace(
+                np.log10(self.p_toa), np.log10(self.atmo.p_total), 200
+            ),
             temperatures=np.linspace(10, 8000, 200),
         )
         self.fastchem_coupler.run_fastchem(

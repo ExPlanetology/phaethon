@@ -47,6 +47,7 @@ from phaethon.celestial_objects import PlanetarySystem
 from phaethon.fastchem_coupling import FastChemCoupler
 from phaethon.gas_mixture import IdealGasMixture
 from phaethon.outgassing import VapourEngine
+from phaethon.root_finder import PhaethonRootFinder, PhaethonConvergenceError
 from phaethon.logger import file_logger
 
 
@@ -57,31 +58,6 @@ from phaethon.logger import file_logger
 DEFAULT_PARAM_FILE = (
     importlib.resources.files("phaethon.data") / "standard_lavaplanet_params.dat"
 )
-
-
-def closest_smaller_value(x: float, arr: ArrayLike):
-    # Filter out values greater than or equal to x
-    smaller_values = [value for value in arr if value < x]
-
-    # If there are no values smaller than x, return minimum of array
-    if not smaller_values:
-        return min(arr)
-
-    # Return the maximum of the smaller values (which will be the closest)
-    return max(smaller_values)
-
-
-def closest_larger_value(x: float, arr: ArrayLike):
-    # Filter out values greater than or equal to x
-    smaller_values = [value for value in arr if value > x]
-
-    # If there are no values smaller than x, return minimum of array
-    if not smaller_values:
-        return max(arr)
-
-    # Return the maximum of the smaller values (which will be the closest)
-    return min(smaller_values)
-
 
 # ================================================================================================
 #   CLASSES
@@ -107,6 +83,9 @@ class PhaethonPipeline:
     t_boa: float
     t_melt: float
 
+    # solver
+    _root_finder: PhaethonRootFinder
+
     # HELIOS objects
     _reader: read.Read
     _keeper: quant.Store
@@ -126,6 +105,13 @@ class PhaethonPipeline:
         opacity_path: str,
         p_toa: float = 1e-8,
         nlayer: int = 50,
+        root_finder: PhaethonRootFinder = PhaethonRootFinder(
+            tboa_func=None,
+            delta_temp_abstol=None,
+            t_init=None,
+            max_iter=15,
+            tmelt_limits=(100., 9000.)
+        )
     ) -> None:
         """
         Init the phaethon pipeline.
@@ -177,6 +163,9 @@ class PhaethonPipeline:
 
         # part of advanced options
         self.nlayer = nlayer  # No. of atmospheric layers
+
+        # solver
+        self._root_finder = root_finder
 
         # HELIOS objects
         self._reader = None
@@ -270,86 +259,21 @@ class PhaethonPipeline:
 
         # run the loop
         start: float = time.time()
-        iteration_counter: int = 1
-
-        # main loop
         logger.info(f"Starting temperature (melt): {self.t_melt} K")
-        self.tmelt_trace: List[float] = []
-        self.delta_tmelt_trace: List[float] = []
-        optimizer: Optional[bayes_opt.BayesianOptimization] = None
-        while True:
+        
+        # run full radiative transfer forward model
+        def tboa_func(t_melt: float) -> float:
+            self._single_forward_iteration(t_melt=t_melt)
+            return self.t_boa
 
-            # log track of iteration
-            logger.info(f"Entering iteration No. {iteration_counter}")
+        # update root finder params
+        self._root_finder.tboa_func = tboa_func
+        self._root_finder.delta_temp_abstol = t_abstol
+        self._root_finder.t_init = self.t_melt
+        self._root_finder.logger = logger
 
-            # run full radiative transfer forward model
-            delta_t_melt = self._single_forward_iteration(t_melt=self.t_melt)
-
-            # append info for bayesian optimizer (and for convergence plots)
-            self.tmelt_trace.append(self.t_melt)
-            self.delta_tmelt_trace.append(delta_t_melt)
-
-            # log temperature data
-            logger.info(f"t_melt: {round(self.t_melt, 2)} K")
-            logger.info(f"t_boa: {round(self.t_boa, 2)} K")
-            logger.info(f"-> ΔT: {round(delta_t_melt, 2)} K")
-
-            # Check convergence conditions
-            if delta_t_melt <= t_abstol:
-                break
-
-            # Prepare for the next iteration
-            iteration_counter += 1
-
-            if optimizer is None:
-                if self.t_boa < min(self.tmelt_trace) or self.t_boa > max(
-                    self.tmelt_trace
-                ):
-                    self.t_melt = self.t_boa
-                else:
-                    # _search_range: Tuple[float] = (
-                    #     max(1., closest_smaller_value(x=self.t_boa, arr=self.tmelt_trace) - 3*t_abstol),
-                    #     closest_larger_value(x=self.t_boa, arr=self.tmelt_trace) + 3 * t_abstol,
-                    # )
-                    _search_range: Tuple[float] = (
-                        min(self.tmelt_trace) - 1.5 * t_abstol,
-                        max(self.tmelt_trace) + 1.5 * t_abstol,
-                    )
-
-                    logger.info(
-                        f"Initialising Bayesian optimizer with range {_search_range}"
-                    )
-
-                    optimizer = bayes_opt.BayesianOptimization(
-                        f=None,
-                        pbounds={"t_melt": _search_range},
-                        # bounds_transformer = SequentialDomainReductionTransformer(minimum_window=t_abstol * 2)
-                        acquisition_function=bayes_opt.acquisition.ExpectedImprovement(
-                            xi=0.0
-                        ),
-                    )
-
-                    # warm start for the optimizer by passing it the previous points
-                    for _tmelt, _delta_t in zip(
-                        self.tmelt_trace, self.delta_tmelt_trace
-                    ):
-                        optimizer.register(
-                            params={"t_melt": _tmelt},
-                            target=-_delta_t,  # negative because the optimizer maximises f
-                        )
-
-                    # suggest the next t_melt
-                    next_point = optimizer.suggest()
-                    logger.info(f"   suggested new point: {next_point}")
-                    self.t_melt = next_point["t_melt"]
-            else:
-                optimizer.register(
-                    params={"t_melt": self.t_melt},
-                    target=-delta_t_melt,  # negative because the optimizer maximises f
-                )
-                next_point = optimizer.suggest()
-                logger.info(f"   suggested new point: {next_point}")
-                self.t_melt = next_point["t_melt"]
+        # solve
+        self._root_finder.solve()
 
         # store output and metadata
         self._write_helios_output()
@@ -410,9 +334,9 @@ class PhaethonPipeline:
         # chemistry look-up tables with FastChem
         p_grid, t_grid = self.fastchem_coupler.get_grid(
             pressures=np.logspace(
-                np.log10(self.p_toa), np.log10(self.atmo.p_total), 200
+                np.log10(self.p_toa), np.log10(self.atmo.p_total), 100
             ),
-            temperatures=np.linspace(10, 8000, 200),
+            temperatures=np.linspace(1000, 6000, 100),
         )
         self.fastchem_coupler.run_fastchem(
             vapour=self.atmo,

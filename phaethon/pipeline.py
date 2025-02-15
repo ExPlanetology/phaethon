@@ -244,13 +244,10 @@ class PhaethonPipeline:
         # Write an initial metadata file
         self.info_dump()
 
-        # Generate the file which lists opacity & scattering species and store it in output dir.
-        # Read by HELIOS
+        # Generate the file which lists opacity & scattering species; req. by HELIOS
         self._write_opacspecies_file()
 
-        # Initialise HELIOS. If necessary, pass additional compiler flags to nvcc (CUDA).
-        if cuda_kws is None:
-            cuda_kws = {}
+        # initialise HELIOS
         self._helios_setup(param_file=param_file, cuda_kws=cuda_kws)
 
         # Inital temperature of the melt, based on the irradiation temperature
@@ -279,7 +276,7 @@ class PhaethonPipeline:
         self._write_helios_output()
         self.info_dump()
 
-        # final fastchem run, generate atmospheric abunance profile
+        # final fastchem run, generate atmospheric abundance profile
         self._final_fastchem_run()
 
         end: float = time.time()
@@ -289,22 +286,7 @@ class PhaethonPipeline:
     # SEMI-PRIVATE METHODS
     # ============================================================================================
 
-    def _final_fastchem_run(self) -> None:
-        """
-        Performs a final FastChem run along the computed P-T-profile in order to obtain the
-        atmospheric speciations as function of pressure/altitude. Allows for using various
-        condensation modes.
-        """
-        df = pd.read_csv(self.outdir + "HELIOS_iterative/tp.dat", header=1, sep=r"\s+")
-        self.fastchem_coupler.run_fastchem(
-            vapour=self.atmo,
-            pressures=df["press.[10^-6bar]"].to_numpy(float) * 1e-6,
-            temperatures=df["temp.[K]"].to_numpy(float),
-            outdir=self.outdir,
-            outfile_name="chem_profile.dat",  # DO NOT CHANGE - PhaethonResult searches it!
-        )
-
-    def _single_forward_iteration(self, t_melt: float) -> float:
+    def _single_forward_iteration(self, t_melt: float) -> None:
         """
         Performs a single forward iteration: vapour -> fastchem -> helios
 
@@ -319,16 +301,20 @@ class PhaethonPipeline:
                 bottom-of-atmosphere (BOA) temperature.
         """
 
-        # Vapour composition & pressure
-        self._equilibriate_atmo_and_ocean(temperature=t_melt)
+        # equilibriate atmosphere-melt interface, compute atmosphere compositon
+        self.atmo = self.vapour_engine.equilibriate_vapour(temperature=t_melt)
         self.p_boa = self.atmo.p_total  # bar
+
+        # check result of outgassing
         if self.atmo.log_p.empty:
             raise ValueError("'VapourEngine' returned an empty result!")
-        if self.p_toa > self.atmo.p_total:
+        if self.p_toa > self.p_boa:
             raise ValueError(
                 f"The vapour pressure ({self.atmo.p_total} bar) is smaller than the TOA pressure"
                 + f" ({self.p_toa} bar)!"
             )
+
+        # inform HELIOS about the change in atmospheric pressure
         self._keeper.p_boa = float(self.atmo.p_total) / 1e-6  # weird HELIOS scaling
 
         # chemistry look-up tables with FastChem
@@ -347,14 +333,26 @@ class PhaethonPipeline:
         )
 
         # solve radiative transfer
-        self._reader.read_species_mixing_ratios(self._keeper)
         self._solve_rad_trans()
+
+        # store bottom-of-atmosphere temperature
         self.t_boa = self._keeper.T_lay[self._keeper.nlayer]
 
-        # convergence criterion
-        delta_t = abs(self.t_boa - self.t_melt)
 
-        return delta_t
+    def _final_fastchem_run(self) -> None:
+        """
+        Performs a final FastChem run along the computed P-T-profile in order to obtain the
+        atmospheric speciations as function of pressure/altitude. Allows for using various
+        condensation modes.
+        """
+        df = pd.read_csv(self.outdir + "HELIOS_iterative/tp.dat", header=1, sep=r"\s+")
+        self.fastchem_coupler.run_fastchem(
+            vapour=self.atmo,
+            pressures=df["press.[10^-6bar]"].to_numpy(float) * 1e-6,
+            temperatures=df["temp.[K]"].to_numpy(float),
+            outdir=self.outdir,
+            outfile_name="chem_profile.dat",  # DO NOT CHANGE - PhaethonResult searches it!
+        )
 
     def _write_opacspecies_file(self):
         """
@@ -385,24 +383,6 @@ class PhaethonPipeline:
                 outstr += "\n\n"
 
                 species_dat.write(outstr)
-
-    def _equilibriate_atmo_and_ocean(
-        self,
-        temperature: float,
-    ) -> None:
-        """
-        Chemically equilibriates the atmosphere-melt interface, and computes the vapour
-        composition.
-
-        Parameters
-        ----------
-            temperature : float
-                Temperature of the planet's "surface", i.e. the (lava-)ocean, in K.
-
-        """
-
-        self.atmo = self.vapour_engine.equilibriate_vapour(temperature=temperature)
-        self.t_boa = temperature
 
     def _helios_setup(
         self,
@@ -570,6 +550,11 @@ class PhaethonPipeline:
         """
         Solves the radiative transfer problem for a specified atmosphere using HELIOS
         """
+
+        # read mixing ratios of gas species
+        self._reader.read_species_mixing_ratios(self._keeper)
+
+        # ???
         hsfunc.set_up_numerical_parameters(self._keeper)
         hsfunc.construct_grid(self._keeper)
         # hsfunc.initial_temp(keeper, reader, init_T_profile) TODO: implement!

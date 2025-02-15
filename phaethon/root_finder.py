@@ -237,7 +237,7 @@ class PhaethonRootFinder:
                 if is_repetition(
                     value=suggested_tmelt,
                     tolerance=self.delta_temp_abstol,
-                    in_array=self.trace,
+                    in_array=[ts.tmelt for ts in self.trace],
                 ):
                     suggested_tmelt = self._bayesian_suggest()
 

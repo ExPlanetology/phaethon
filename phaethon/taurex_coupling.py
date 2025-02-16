@@ -21,8 +21,9 @@ Classes and utilities to conveniently use Taurex3 on the atmospheric profiles co
 by HELIOS/phaethon.
 """
 
-from typing import Union, Callable, Optional, List, Tuple
+from typing import Union, Callable, Optional, List, Tuple, Literal
 import numpy as np
+from numpy.typing import ArrayLike
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 from molmass import Formula
@@ -43,6 +44,7 @@ from taurex.stellar import BlackbodyStar
 from taurex.binning import FluxBinner, SimpleBinner
 
 from phaethon.analyse import PhaethonResult
+from phaethon.utilities import formula_to_hill
 
 # ================================================================================================
 #   CLASSES
@@ -51,24 +53,22 @@ from phaethon.analyse import PhaethonResult
 
 class GasSpeciesNameTranslator:
     """
-    Relates a FastChem species to a Taurex species.
+    Relates a species to its name in FastChem.
 
     Parameters
     ----------
-        taurex_name : str
-            Name of gas species in petitRADTRANS.
-        fastchem_name : str
-            Name of gas species in FastChem, usually in the Hill notation.
+        formula : str
+            Formula of gas species.
     """
 
-    taurex_name: str
+    formula: str
     fastchem_name: str
-    mass: str
+    atom_mass: str
 
-    def __init__(self, taurex_name: str, fastchem_name: str):
-        self.taurex_name = taurex_name
-        __formula = Formula(fastchem_name)
-        self.fastchem_name = fastchem_name
+    def __init__(self, formula: str):
+        self.formula = formula
+        self.fastchem_name = formula_to_hill(formula)
+        __formula = Formula(formula)
         self.atom_mass = __formula.mass
 
 
@@ -94,7 +94,6 @@ class TaurexCoupler:
     ## This class must store a lot
     # pylint: disable=too-many-instance-attributes
 
-    # radtrans: Radtrans
     phaethon_result: PhaethonResult
 
     line_species: list
@@ -106,12 +105,18 @@ class TaurexCoupler:
     def __init__(
         self,
         opac_path: str,
-        line_species: List[GasSpeciesNameTranslator],
-        rayleigh_species: List[GasSpeciesNameTranslator],
+        line_species: List[str],
+        rayleigh_species: Optional[List[str]] = None,
     ) -> None:
 
-        self.line_species = line_species
-        self.rayleigh_species = rayleigh_species
+        self.line_species = [
+            GasSpeciesNameTranslator(species) for species in line_species
+        ]
+        if rayleigh_species is None:
+            rayleigh_species = []
+        self.rayleigh_species = [
+            GasSpeciesNameTranslator(species) for species in rayleigh_species
+        ]
 
         # taurex stuff
         OpacityCache().clear_cache()
@@ -147,7 +152,7 @@ class TaurexCoupler:
             p_points=self.p_profile,
         )
 
-        # chemistry profiles
+        # chemistry profiles; TODO: add Rayleigh and CIA species as well!
         chemistry = TaurexChemistry()
         for specimen in self.line_species:
             mix_ratio_array = self.phaethon_result.chem[
@@ -155,7 +160,7 @@ class TaurexCoupler:
             ].to_list()
             chemistry.addGas(
                 ArrayGas(
-                    molecule_name=specimen.taurex_name,
+                    molecule_name=specimen.formula,
                     mix_ratio_array=mix_ratio_array,
                 )
             )
@@ -178,7 +183,7 @@ class TaurexCoupler:
         )
 
         # init Taurex objects
-        self._transm_model = TransmissionModel(
+        self._transmission_model = TransmissionModel(
             planet=planet,
             temperature_profile=temperature,
             chemistry=chemistry,
@@ -188,7 +193,7 @@ class TaurexCoupler:
             nlayers=30,
         )
 
-        self._fpfs_model = EmissionModel(
+        self._emission_model = EmissionModel(
             planet=planet,
             temperature_profile=temperature,
             chemistry=chemistry,
@@ -198,7 +203,7 @@ class TaurexCoupler:
             nlayers=30,
         )
 
-        self._flux_model = DirectImageModel(
+        self._direct_image_model = DirectImageModel(
             planet=planet,
             temperature_profile=temperature,
             chemistry=chemistry,
@@ -209,48 +214,83 @@ class TaurexCoupler:
         )
 
         # Add contributions
-        for model in [self._transm_model, self._fpfs_model, self._flux_model]:
+        for model in [
+            self._transmission_model,
+            self._emission_model,
+            self._direct_image_model,
+        ]:
             model.add_contribution(AbsorptionContribution())
             # model.add_contribution(CIAContribution(cia_pairs=["H2-H2", "H2-He"]))
             if len(self.rayleigh_species) > 0:
                 model.add_contribution(RayleighContribution())
             model.build()
 
-    # def calc_planet_flux(
-    #     self, r_planet: float, reference_gravity: float = 981.0
-    # ) -> Union[np.ndarray, np.ndarray]:
-    #     """
-    #     Flux emitted by the planet.
+    def __eval_taurex_model(
+        self,
+        which: Literal["transmission", "emission", "direct-imaging"],
+        wavlbounds_in_micron: Tuple[float, float],
+        n_samples: int = 1000,
+    ) -> Tuple[ArrayLike, ArrayLike]:
+        """
+        Evaluates a Taurex-Model.
+        """
+        wngrid = np.sort(
+            10000
+            / np.logspace(
+                np.log10(min(wavlbounds_in_micron)),
+                np.log10(max(wavlbounds_in_micron)),
+                n_samples,
+            )
+        )
+        bn = SimpleBinner(wngrid=wngrid)
 
-    #     Parameters
-    #     ----------
-    #         r_planet : float
-    #             Radius of planet, in R_EARTH
-    #         r_star: float
-    #             Radius of star, in R_SUN
-    #     Returns
-    #     -------
-    #         wavl_micron : np.ndarray
-    #             Wavelengths, in micron.
-    #         flux : np.ndarray
-    #             Flux emitted by the planet.
-    #     """
-    #     wavl_cm, planet_flux, _ = self.radtrans.calculate_flux(
-    #         temperatures=self.t_profile,
-    #         mass_fractions=self.massfrac_profiles,
-    #         reference_gravity=reference_gravity,
-    #         mean_molar_masses=self.mmw_profile,
-    #         planet_radius=r_planet * cst.r_earth,
-    #     )
-    #     wavl_micron = wavl_cm * 1e4
+        match which:
+            case "transmission":
+                _model = self._transmission_model
+            case "emission":
+                _model = self._emission_model
+            case "direct-imaging":
+                _model = self._direct_image_model
+            case _:
+                raise NotImplementedError()
 
-    #     return wavl_micron, planet_flux
+        bin_wn, bin_rprs, _, _ = bn.bin_model(_model.model())
+
+        bin_wavl = 10000 / bin_wn
+        bin_wavl *= units.micron
+
+        return bin_wavl, bin_rprs
+
+    def calc_planet_flux(
+        self, wavlbounds_in_micron: Tuple[float, float], n_samples: int = 1000
+    ) -> Union[np.ndarray, np.ndarray]:
+        """
+        Calculate the transmission spectrum of a planet.
+
+        Parameters
+        ----------
+            r_planet : float
+                Radius of planet, in R_EARTH
+            r_star: float
+                Radius of star, in R_SUN
+        Returns
+        -------
+            wavl_micron : np.ndarray
+                Wavelengths, in micron.
+            flux : np.ndarray
+                Flux emitted by the planet.
+        """
+        return self.__eval_taurex_model(
+            which="direct-imaging",
+            wavlbounds_in_micron=wavlbounds_in_micron,
+            n_samples=n_samples,
+        )
 
     def calc_fpfs(
         self, wavlbounds_in_micron: Tuple[float, float], n_samples: int = 1000
     ):
         """
-        Calculate the transmission spectrum of a planet.
+        Calculate the secondary eclipse depth of a planet.
 
         Parameters
         ----------
@@ -269,22 +309,11 @@ class TaurexCoupler:
                 transmission radius, in R_earth
         """
 
-        wngrid = np.sort(
-            10000
-            / np.logspace(
-                np.log10(min(wavlbounds_in_micron)),
-                np.log10(max(wavlbounds_in_micron)),
-                n_samples,
-            )
+        return self.__eval_taurex_model(
+            which="emission",
+            wavlbounds_in_micron=wavlbounds_in_micron,
+            n_samples=n_samples,
         )
-        bn = SimpleBinner(wngrid=wngrid)
-
-        bin_wn, bin_rprs, _, _ = bn.bin_model(self._fpfs_model.model())
-
-        bin_wavl = 10000 / bin_wn
-        bin_wavl *= units.micron
-
-        return bin_wavl, bin_rprs
 
     def calc_transm(
         self, wavlbounds_in_micron: Tuple[float, float], n_samples: int = 1000
@@ -309,38 +338,31 @@ class TaurexCoupler:
                 transmission radius, in R_earth
         """
 
-        wngrid = np.sort(
-            10000
-            / np.logspace(
-                np.log10(min(wavlbounds_in_micron)),
-                np.log10(max(wavlbounds_in_micron)),
-                n_samples,
-            )
+        return self.__eval_taurex_model(
+            which="transmission",
+            wavlbounds_in_micron=wavlbounds_in_micron,
+            n_samples=n_samples,
         )
-        bn = SimpleBinner(wngrid=wngrid)
-
-        bin_wn, bin_rprs, _, _ = bn.bin_model(self._transm_model.model())
-
-        bin_wavl = 10000 / bin_wn
-        bin_wavl *= units.micron
-
-        return bin_wavl, bin_rprs
 
     def _visualize_mixing_ratios(self):
+        """
+        Plots the atmospheric mixing rations of active absorbers used by TauREx. Mostly for de-
+        bugging purposes.
+        """
         plt.figure()
 
-        for x, gasname in enumerate(self._transm_model.chemistry.activeGases):
+        for x, gasname in enumerate(self._transmission_model.chemistry.activeGases):
 
             plt.plot(
-                self._transm_model.chemistry.activeGasMixProfile[x],
-                self._transm_model.pressureProfile / 1e5,
+                self._transmission_model.chemistry.activeGasMixProfile[x],
+                self._transmission_model.pressureProfile / 1e5,
                 label=gasname,
             )
-        for x, gasname in enumerate(self._transm_model.chemistry.inactiveGases):
+        for x, gasname in enumerate(self._transmission_model.chemistry.inactiveGases):
 
             plt.plot(
-                self._transm_model.chemistry.inactiveGasMixProfile[x],
-                self._transm_model.pressureProfile / 1e5,
+                self._transmission_model.chemistry.inactiveGasMixProfile[x],
+                self._transmission_model.pressureProfile / 1e5,
                 label=gasname,
             )
         plt.gca().invert_yaxis()

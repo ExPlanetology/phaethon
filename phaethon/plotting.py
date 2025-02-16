@@ -32,6 +32,7 @@ from labellines import labelLines
 import cmcrameri
 
 from phaethon.analyse import PhaethonResult
+from phaethon.utilities import formula_to_latex
 
 
 def plot_chem(
@@ -134,12 +135,12 @@ def plot_chem(
                 ax.plot(
                     np.flip(_mixing_ratio[mask]),
                     np.flip(pressure[mask]),
-                    label=species,
+                    label=formula_to_latex(species),
                     color=color,
                 )
 
                 legend_handles.append(
-                    Line2D([0], [0], label=species, color=color, ls="solid", lw=2)
+                    Line2D([0], [0], label=formula_to_latex(species), color=color, ls="solid", lw=2)
                 )
 
     if use_mpl_log:

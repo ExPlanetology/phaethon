@@ -282,6 +282,9 @@ class PhaethonPipeline:
         end: float = time.time()
         logger.info(f"Finished. Duration: {(end - start) / 60.} min")
 
+        # clear cached helios data
+        self._wipe_helios_memory()
+
     # ============================================================================================
     # SEMI-PRIVATE METHODS
     # ============================================================================================
@@ -383,6 +386,18 @@ class PhaethonPipeline:
                 outstr += "\n\n"
 
                 species_dat.write(outstr)
+
+    def _wipe_helios_memory(self) -> None:
+        """
+        Clears the cached data from HELIOS in order to free memory; is called at the end of the
+        pipeline.
+        """
+        self._reader = read.Read()
+        self._keeper = quant.Store()
+        self._computer = comp.Compute(cuda_kws=cuda_kws)
+        self._writer = write.Write()
+        self._plotter = rt_plot.Plot()
+        self._fogger = clouds.Cloud()
 
     def _helios_setup(
         self,

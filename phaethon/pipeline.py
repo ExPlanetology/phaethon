@@ -21,11 +21,12 @@ The main pipeline that streamlines the computation of the structure of an outgas
 """
 
 import importlib
+import warnings
 import json
 import logging
 import os
 import time
-from typing import Tuple, Optional, Literal, List
+from typing import Tuple, Optional, Literal, List, Dict
 from io import TextIOWrapper
 import numpy as np
 from numpy.typing import ArrayLike
@@ -237,7 +238,6 @@ class PhaethonPipeline:
                 Dictionary containing additional args (e.g., compiler flags) for nvcc, the CUDA
                 compiler. Called when compiling the HELIOS kernels on-the-fly.
         """
-
         # init logger
         logger = file_logger(logfile=self.outdir + logfile_name)
 
@@ -257,33 +257,40 @@ class PhaethonPipeline:
         # run the loop
         start: float = time.time()
         logger.info(f"Starting temperature (melt): {self.t_melt} K")
+
+        try:            
+            # run full radiative transfer forward model
+            def tboa_func(t_melt: float) -> float:
+                self._single_forward_iteration(t_melt=t_melt)
+                return self.t_boa
+
+            # update root finder params
+            self._root_finder.tboa_func = tboa_func
+            self._root_finder.delta_temp_abstol = t_abstol
+            self._root_finder.t_init = self.t_melt
+            self._root_finder.logger = logger
+
+            # solve
+            self._root_finder.solve()
+
+            # store output and metadata
+            self._write_helios_output()
+            self.info_dump()
+
+            # final fastchem run, generate atmospheric abundance profile
+            self._final_fastchem_run()
+
+            end: float = time.time()
+            logger.info(f"Finished. Duration: {(end - start) / 60.} min")
         
-        # run full radiative transfer forward model
-        def tboa_func(t_melt: float) -> float:
-            self._single_forward_iteration(t_melt=t_melt)
-            return self.t_boa
+        # log error, just in case
+        except Exception as e:
+            warnings.warn(str(e))
+            logger.error(f"{e}")
 
-        # update root finder params
-        self._root_finder.tboa_func = tboa_func
-        self._root_finder.delta_temp_abstol = t_abstol
-        self._root_finder.t_init = self.t_melt
-        self._root_finder.logger = logger
-
-        # solve
-        self._root_finder.solve()
-
-        # store output and metadata
-        self._write_helios_output()
-        self.info_dump()
-
-        # final fastchem run, generate atmospheric abundance profile
-        self._final_fastchem_run()
-
-        end: float = time.time()
-        logger.info(f"Finished. Duration: {(end - start) / 60.} min")
-
-        # clear cached helios data
-        self._wipe_helios_memory()
+        # clear cached helios data, because they can occupy large amounts of memory
+        finally:
+            self._wipe_helios_memory(cuda_kws=cuda_kws)
 
     # ============================================================================================
     # SEMI-PRIVATE METHODS
@@ -387,7 +394,7 @@ class PhaethonPipeline:
 
                 species_dat.write(outstr)
 
-    def _wipe_helios_memory(self) -> None:
+    def _wipe_helios_memory(self, cuda_kws: Dict[str, str]) -> None:
         """
         Clears the cached data from HELIOS in order to free memory; is called at the end of the
         pipeline.

@@ -1,4 +1,4 @@
-# 
+#
 # Copyright 2024-2025 Fabian L. Seidler
 #
 # This file is part of Phaethon.
@@ -292,15 +292,15 @@ class PhaethonResult:
             )
 
         # find photosphere
-        mask = np.argmin(
+        index_of_closest = np.argmin(
             abs(self.integrated_transmissivity - photosphere_level), axis=1
         )
-        _photosphere: ArrayLike = self.pressure[1:][mask]
+        photosphere: ArrayLike = self.pressure[1:][index_of_closest]
 
         # apply smoothing (optional)
         if smoothing_window_size is not None:
-            return moving_average(_photosphere, smoothing_window_size)
-        return _photosphere
+            return moving_average(photosphere, smoothing_window_size)
+        return photosphere
 
     def get_photospheric_radius(
         self,
@@ -718,7 +718,7 @@ def integrate_flux_in_waveband(
 
     # planetary radius
     if isinstance(radius, AstropyQuantity):
-        _radius_in_cm: float = pl_radius.to("cm")
+        _radius_in_cm: float = radius.to("cm")
     elif isinstance(radius, (int, float)):
         warnings.warn(r"'radius' has no unit, assuming Earth radii")
         _radius_in_cm: float = float(radius) * units.R_earth.to("cm")

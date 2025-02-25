@@ -21,6 +21,7 @@ Utilities for phaethon
 """
 from typing import Dict, Tuple
 from molmass import Formula
+import signal
 
 def formula_to_hill(formula: str) -> str:
     """
@@ -76,3 +77,23 @@ def formula_to_latex(formula: str) -> str:
     latex_formula += "$"
 
     return latex_formula
+
+class Timeout(Exception):
+    pass
+
+def timeout_handler(signum, frame):
+    raise Timeout("Function call timed out")
+
+def run_with_timeout(func, args=(), kwargs={}, timeout=5):
+    """
+    Run a function with a timeout. If triggered, an Exception is raised
+    """
+    # Set the timeout handler for the alarm signal
+    signal.signal(signal.SIGALRM, timeout_handler)
+
+    signal.alarm(timeout)  # Set an alarm for the specified timeout
+    try:
+        result = func(*args, **kwargs)
+    finally:
+        signal.alarm(0)  # Cancel the alarm
+    return result

@@ -418,24 +418,26 @@ class PhaethonResult:
                 Rescaled secondary eclipse depth.
         """
 
-        # Unfortunately, the star's and the planet's spectrum might be computed on different
-        # wavelength grids. Therefore, perform a fit.
-        _st_spec_flux = (
-            self.star_spectral_flux(st_radius=st_radius).to("erg / (s * cm)").value
-        )
-        _st_wavl = self.star_wavl.to("cm").value
-        _fit_func = interp1d(
-            _st_wavl, _st_spec_flux, bounds_error=False, fill_value=np.nan
-        )
-        _fitted_star_spec = _fit_func(self.wavl.to("cm").value) * (
-            units.erg / (units.s * units.cm)
-        )
+        # # TODO: move this to star_spectral_flux!
+        # # Unfortunately, the star's and the planet's spectrum might be computed on different
+        # # wavelength grids. Therefore, perform a fit.
+        # _st_spec_flux = (
+        #     self.star_spectral_flux(st_radius=st_radius).to("erg / (s * cm)").value
+        # )
+        # _st_wavl = self.star_wavl.to("cm").value
+        # _fit_func = interp1d(
+        #     _st_wavl, _st_spec_flux, bounds_error=False, fill_value=np.nan
+        # )
+        # _fitted_star_spec = _fit_func(self.wavl.to("cm").value) * (
+        #     units.erg / (units.s * units.cm)
+        # )
 
         # planet spectral flux
-        _planet_spec = self.planet_spectral_flux(pl_radius=pl_radius, method=method)
+        planet_spec = self.planet_spectral_flux(pl_radius=pl_radius, method=method)
+        star_spec = self.star_spectral_flux(st_radius=st_radius)
 
         # fpfs, the planet-to-star flux ratio
-        fpfs_calculated = _planet_spec / _fitted_star_spec
+        fpfs_calculated = planet_spec / star_spec
 
         return fpfs_calculated
 
@@ -468,12 +470,24 @@ class PhaethonResult:
         else:
             raise TypeError(r"'st_radius' must be None, float or an astropy Quantity.")
 
-        return (
+        # return (
+        #     4
+        #     * np.pi
+        #     * self.spectral_exitance_star.to("erg / (s * cm3)")
+        #     * _st_radius.to("cm") ** 2
+        # )
+
+        # Alternative: reconstruct from HELIOS output!
+        _planet_radius_in_helios = self.planet_params["radius"] * units.R_earth
+        _planet_spectral_flux_in_helios = (
             4
             * np.pi
-            * self.spectral_exitance_star.to("erg / (s * cm3)")
-            * _st_radius.to("cm") ** 2
+            * self.spectral_exitance_planet.to("erg / (s * cm3)")
+            * _planet_radius_in_helios.to("cm") ** 2
         )
+
+        # TODO: fix this
+        return _planet_spectral_flux_in_helios / self.fpfs
 
     def star_total_flux(
         self, st_radius: Optional[Union[float, int, AstropyUnit]] = None

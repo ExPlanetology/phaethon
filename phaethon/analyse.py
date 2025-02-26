@@ -470,24 +470,24 @@ class PhaethonResult:
         else:
             raise TypeError(r"'st_radius' must be None, float or an astropy Quantity.")
 
-        # return (
-        #     4
-        #     * np.pi
-        #     * self.spectral_exitance_star.to("erg / (s * cm3)")
-        #     * _st_radius.to("cm") ** 2
-        # )
-
-        # Alternative: reconstruct from HELIOS output!
-        _planet_radius_in_helios = self.planet_params["radius"] * units.R_earth
-        _planet_spectral_flux_in_helios = (
+        return (
             4
             * np.pi
-            * self.spectral_exitance_planet.to("erg / (s * cm3)")
-            * _planet_radius_in_helios.to("cm") ** 2
+            * self.spectral_exitance_star.to("erg / (s * cm3)")
+            * _st_radius.to("cm") ** 2
         )
 
-        # TODO: fix this
-        return _planet_spectral_flux_in_helios / self.fpfs
+        # # Alternative: reconstruct from HELIOS output!
+        # _planet_radius_in_helios = self.planet_params["radius"] * units.R_earth
+        # _planet_spectral_flux_in_helios = (
+        #     4
+        #     * np.pi
+        #     * self.spectral_exitance_planet.to("erg / (s * cm3)")
+        #     * _planet_radius_in_helios.to("cm") ** 2
+        # )
+
+        # # TODO: fix this
+        # return _planet_spectral_flux_in_helios / self.fpfs
 
     def star_total_flux(
         self, st_radius: Optional[Union[float, int, AstropyUnit]] = None

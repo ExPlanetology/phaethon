@@ -1,4 +1,4 @@
-# 
+#
 # Copyright 2024-2025 Fabian L. Seidler
 #
 # This file is part of Phaethon.
@@ -29,8 +29,11 @@ from typing import Callable, Union
 import astropy.constants as const
 import astropy.units as unit
 import numpy as np
+import numpy.typing as npt
+from astropy import units
 from astropy.units.core import Unit as AstropyUnit
 from astropy.units.quantity import Quantity as AstropyQuantity
+from astropy.modeling.models import BlackBody
 from helios.star_tool.functions import main_loop as startool_mainloop
 from scipy.interpolate import interp1d
 
@@ -39,6 +42,35 @@ from scipy.interpolate import interp1d
 # ================================================================================================
 
 logger = logging.getLogger(__name__)
+
+
+def black_body_spectral_exitance(
+    wavl: npt.NDArray[AstropyUnit], temperature: float
+) -> npt.NDArray[AstropyUnit]:
+    """
+    Radiant flux [erg/s] emitted by a black-body surface per unit area, per wavelength.
+    """
+    bb_planet = BlackBody(temperature=temperature * units.K)
+    bb_emission = (
+        bb_planet(wavl).to(
+            "erg / (s cm3 sr)", equivalencies=units.spectral_density(wavl)
+        )
+        * np.pi
+        * units.steradian
+    )
+    return bb_emission
+
+
+def black_body_object_spectrum(
+    wavl: npt.NDArray[AstropyUnit], temperature: float, radius: AstropyUnit
+) -> npt.NDArray[AstropyUnit]:
+    """
+    Returns the spectral flux of a sphere, emitting as a black body of given temperature.
+    """
+    spectral_exitance = black_body_spectral_exitance(wavl=wavl, temperature=temperature)
+
+    return 4 * np.pi * radius.to("cm") ** 2 * spectral_exitance
+
 
 # ================================================================================================
 #   STAR
@@ -144,9 +176,11 @@ class Star:
             skiprows : int
                 Number of header rows to skip.
             w_conversion_factor: float
-                Wavelength conversion factor.
+                Wavelength conversion factor. The factor that is needed to convert input wave-
+                lengths into cm.
             flux_conversion_factor : float
-                Flux units conversion factor.
+                Flux units conversion factor. The factor that is needed to convert input wave-
+                lengths into erg / s / cm³.
         """
         if not outdir.endswith("/"):
             outdir += "/"
@@ -208,7 +242,7 @@ class Star:
             opac_file_for_lambdagrid : str
                 Reference for wavelength - must be same as planet.
             plot_and_tweak: bool
-                Make star_tool plot the final spectrum, allowing to manually tweak it (maybe 
+                Make star_tool plot the final spectrum, allowing to manually tweak it (maybe
                 necessary for phoenix, especially for mid-to-far infrared wavelengths).
         """
         if not outdir.endswith("/"):
@@ -356,7 +390,7 @@ class Orbit(ABC):
 class CircularOrbitFromPeriod(Orbit):
     """
     Properties of a circular orbit based on its period.
-    
+
     Parameters
     ----------
         period : astropy.units.core.Unit
@@ -406,7 +440,7 @@ class CircularOrbitFromPeriod(Orbit):
 class CircularOrbitFromSemiMajorAxis(Orbit):
     """
     Properties of a circular orbit based on its semi-major axis.
-        
+
     Parameters
     ----------
         semi_major_axis : astropy.units.core.Unit
@@ -467,6 +501,7 @@ class Planet:
     """
     Class that holds data on planetary characteristics.
     """
+
     name: str
     mass: AstropyUnit
     radius: AstropyUnit
@@ -501,6 +536,7 @@ class PlanetarySystem:
         orbit : Orbit
             Orbit-object. See `phaethon.celestial_objects.Orbit`.
     """
+
     star: Star
     planet: Planet
     orbit: Orbit
@@ -590,7 +626,7 @@ class PlanetarySystem:
     def get_info(self) -> dict:
         """
         Returns info dict
-        
+
         Returns
         -------
             info : dict

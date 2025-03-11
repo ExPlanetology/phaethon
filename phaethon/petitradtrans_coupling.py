@@ -1,4 +1,4 @@
-# 
+#
 # Copyright 2024-2025 Fabian L. Seidler
 #
 # This file is part of Phaethon.
@@ -39,6 +39,7 @@ from phaethon.utilities import formula_to_hill
 # ================================================================================================
 #   CLASSES
 # ================================================================================================
+
 
 class GasSpeciesNameTranslator:
     """
@@ -108,10 +109,14 @@ class RadtransCoupler:
     ) -> None:
 
         self.wlen_bords_micron = wlen_bords_micron
-        self.line_species = [GasSpeciesNameTranslator(species) for species in line_species]
+        self.line_species = [
+            GasSpeciesNameTranslator(species) for species in line_species
+        ]
         if rayleigh_species is None:
             rayleigh_species = []
-        self.rayleigh_species = [GasSpeciesNameTranslator(species) for species in rayleigh_species]
+        self.rayleigh_species = [
+            GasSpeciesNameTranslator(species) for species in rayleigh_species
+        ]
 
         if gas_continuum_contributors is None:
             gas_continuum_contributors = []
@@ -212,7 +217,8 @@ class RadtransCoupler:
         st_radius: Optional[Union[float, int, Quantity]] = None,
         grav_acc: Optional[Union[float, int, Quantity]] = None,
         use_phoenix: bool = False,
-        **calcflux_kws,
+        calcflux_kws: Optional[Dict[str, float | str]] = None,
+        **kwargs,
     ) -> Union[np.ndarray, np.ndarray]:
         """
         Secondary occultation depth.
@@ -269,6 +275,9 @@ class RadtransCoupler:
         else:
             raise TypeError(r"'st_radius' must be None, float or an astropy Quantity.")
 
+        if calcflux_kws is None:
+            calcflux_kws = {}
+
         # get emission spectrum of the planet
         wavl_cm, planet_spectral_emittance, _ = self.radtrans.calculate_flux(
             temperatures=self.t_profile,
@@ -305,7 +314,13 @@ class RadtransCoupler:
 
         return wavl_micron, fpfs
 
-    def calc_transm(self, r_planet: float, gravity: float = 981.0, **calctransrad_kws):
+    def calc_transm(
+        self,
+        pl_radius: Optional[Union[float, int, Quantity]] = None,
+        gravity: Optional[float] = None,
+        calctransrad_kws: Optional[Dict[str, float | str]] = None,
+        **kwargs,
+    ):
         """
         Calculate the transmission spectrum of a planet.
 
@@ -325,18 +340,45 @@ class RadtransCoupler:
             transm_rad : np.ndarray
                 transmission radius, in R_earth
         """
+
+        if calctransrad_kws is None:
+            calctransrad_kws = {}
+
+        # planetary radius
+        if pl_radius is None:
+            _pl_radius_in_cm: float = self.phaethon_result.planet_params[
+                "radius"
+            ] * units.R_earth.to("cm")
+        elif isinstance(pl_radius, Quantity):
+            _pl_radius_in_cm: float = pl_radius.to("cm")
+        elif isinstance(pl_radius, (int, float)):
+            warnings.warn(r"'pl_radius' has no unit, assuming Earth radii")
+            _pl_radius_in_cm: float = float(pl_radius) * units.R_earth.to("cm")
+        else:
+            raise TypeError(r"'pl_radius' must be None, float or an astropy Quantity.")
+
+        # gravity; TODO: implement keyword!
+        grav = self.phaethon_result.planet_params["grav"] * 100 # to cm/s^2
+
+        # transmission calculation
         wavl, transm_rad, _ = self.radtrans.calculate_transit_radii(
             temperatures=self.t_profile,
             mass_fractions=self.massfrac_profiles,
             mean_molar_masses=self.mmw_profile,
-            reference_gravity=gravity,
-            planet_radius=r_planet * cst.r_earth,
+            reference_gravity=grav,
+            planet_radius=_pl_radius_in_cm,
             reference_pressure=self.p_profile[-1],
             **calctransrad_kws,
         )
+
+        # calculate area frac
+        _st_radius_in_cm: float = self.phaethon_result.star_params[
+                "radius"
+            ] * units.R_sun.to("cm")
+        transm_area_frac = (transm_rad/_st_radius_in_cm)**2
 
         # scale to proper units
         wavl_micron = wavl * 1e4
         transm_rad /= cst.r_earth
 
-        return wavl_micron, transm_rad
+        return wavl_micron, transm_area_frac

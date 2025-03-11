@@ -263,17 +263,17 @@ class PhaethonResult:
         )
 
     def get_photospheric_pressurelevel(
-        self, photosphere_level: float, smoothing_window_size: Optional[int] = None
+        self, absorbed_frac: Optional[float]=None, smoothing_window_size: Optional[int] = None
     ) -> ArrayLike:
         """
         Photospheric pressure level as funcition of wavelength, defined by the integrated
         transmissivity, i.e. the pressure where the atmosphere has absorbed a given fraction
         of all incoming light, per wavelength. This fraction is defined in the parameter
-        'photosphere_level'.
+        'absorbed_frac'.
 
         Parameters
         ----------
-            photosphere_level : float
+            absorbed_frac : float
                 Where to define the photosphere, fraction of incoming light that has to be
                 absorbed to be defined as photosphere.
             smoothing_window_size : Union[int, None] (optional)
@@ -285,17 +285,28 @@ class PhaethonResult:
                 Same size as input array, but optionally smoothed.
         """
 
-        # check input
-        if photosphere_level < 0.0 or photosphere_level > 1.0:
-            raise ValueError(
-                f"'photosphere_level' is {photosphere_level}, but must be bounded by 0 and 1."
-            )
+        # use fraction of absorbed light if it is None:
+        if absorbed_frac is not None:
 
-        # find photosphere
-        index_of_closest = np.argmin(
-            abs(self.integrated_transmissivity - photosphere_level), axis=1
-        )
-        photosphere: ArrayLike = self.pressure[1:][index_of_closest]
+            # check input
+            if absorbed_frac < 0.0 or absorbed_frac > 1.0:
+                raise ValueError(
+                    f"'absorbed_frac' is {absorbed_frac}, but must be bounded by 0 and 1."
+                )
+
+            # find photosphere
+            index_of_closest = np.argmin(
+                abs(self.integrated_transmissivity - absorbed_frac), axis=1
+            )
+            photosphere: ArrayLike = self.pressure[1:][index_of_closest]
+        
+        # use τ=1 as definition for photosphere
+        else:
+            index_of_closest = np.argmin(
+                abs(self.optical_depth - 1.0), axis=1
+            )
+            photosphere: ArrayLike = self.pressure[1:][index_of_closest]
+
 
         # apply smoothing (optional)
         if smoothing_window_size is not None:
@@ -304,7 +315,7 @@ class PhaethonResult:
 
     def get_photospheric_radius(
         self,
-        photosphere_level: float,
+        absorbed_frac: Optional[float] = None,
         smoothing_window_size: Optional[int] = None,
         pl_radius: Optional[Union[float, int, AstropyUnit]] = None,
     ) -> ArrayLike:
@@ -343,7 +354,7 @@ class PhaethonResult:
 
         # find photosphere
         _photosphere_pressure = self.get_photospheric_pressurelevel(
-            photosphere_level=photosphere_level
+            absorbed_frac=absorbed_frac
         )
         _photopshere_height_fit_func = interp1d(
             x=self.pressure.to("bar").value,
@@ -560,7 +571,7 @@ class PhaethonResult:
                 axis=1,
             )
         elif method in ["photosphere", "photo", "p"]:
-            _photosphere_radius = self.get_photospheric_radius(photosphere_level=0.5)
+            _photosphere_radius = self.get_photospheric_radius()
 
             spectral_flux = (
                 4 * np.pi * _photosphere_radius**2 * self.spectral_exitance_planet

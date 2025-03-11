@@ -282,7 +282,7 @@ def plot_tau(
     for photo_p_level, ls in zip([0.159, 0.5, 0.841], ["dotted", "solid", "dotted"]):
         photo_pressure: np.ndarray = (
             result.get_photospheric_pressurelevel(
-                photosphere_level=photo_p_level, **photosphere_kws
+                absorbed_frac=photo_p_level, **photosphere_kws
             )
             .to(pressure_unit)
             .value

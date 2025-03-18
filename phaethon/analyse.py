@@ -397,7 +397,7 @@ class PhaethonResult:
         self,
         pl_radius: Optional[Union[float, int, AstropyUnit]] = None,
         st_radius: Optional[Union[float, int, AstropyUnit]] = None,
-        method: Literal["photosphere", "p", "contribution", "c"] = "photosphere",
+        method: Literal["photosphere", "p", "contribution", "c"] = "TOA",
     ) -> ArrayLike:
         """
         Calculates the secondary eclipse depth (planet-to-star flux ratio, fpfs, Fp/Fs, ...) based
@@ -523,7 +523,7 @@ class PhaethonResult:
     def planet_spectral_flux(
         self,
         pl_radius: Optional[Union[float, int, AstropyUnit]] = None,
-        method: Literal["photosphere", "p", "contribution", "c"] = "photosphere",
+        method: Literal["photosphere", "p", "contribution", "c", "toa", "TOA"] = "TOA",
     ) -> ArrayLike:
         """
         Calculates the emitted flux of the planet. WARNING: Assumes a homogeneous temperature
@@ -575,6 +575,12 @@ class PhaethonResult:
 
             spectral_flux = (
                 4 * np.pi * _photosphere_radius**2 * self.spectral_exitance_planet
+            )
+        elif method in ["toa", "TOA"]:
+            _toa_radius = _pl_radius.to("cm") + self.altitude[-1].to("cm")
+
+            spectral_flux = (
+                4 * np.pi * _toa_radius**2 * self.spectral_exitance_planet
             )
         else:
             raise ValueError(f"unknown method '{method}'")

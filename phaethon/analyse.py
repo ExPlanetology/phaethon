@@ -523,7 +523,7 @@ class PhaethonResult:
     def planet_spectral_flux(
         self,
         pl_radius: Optional[Union[float, int, AstropyUnit]] = None,
-        method: Literal["photosphere", "p", "contribution", "c", "toa", "TOA"] = "photosphere",
+        method: Literal["photosphere", "p", "contribution", "c", "toa", "TOA", "constant radius", "r"] = "photosphere",
     ) -> ArrayLike:
         """
         Calculates the emitted flux of the planet. WARNING: Assumes a homogeneous temperature
@@ -582,6 +582,10 @@ class PhaethonResult:
             spectral_flux = (
                 4 * np.pi * _toa_radius**2 * self.spectral_exitance_planet
             )
+        elif method in ["constant radius", "r"]:
+            spectral_flux = (
+                4 * np.pi * _pl_radius.to("cm")**2 * self.spectral_exitance_planet
+            )
         else:
             raise ValueError(f"unknown method '{method}'")
 
@@ -621,6 +625,7 @@ class PhaethonResult:
         self,
         cond_mode: CondensationMode,
         full_output: bool = False,
+        **fastchem_kwargs,
     ):
         """
         A postprocessing tool to run condensation along the P-T-profile, bottom-up.
@@ -663,7 +668,7 @@ class PhaethonResult:
                 folder.
                 """
 
-        fastchem_coupler = FastChemCoupler()
+        fastchem_coupler = FastChemCoupler(**fastchem_kwargs)
         fastchem, output_data = fastchem_coupler.run_fastchem(
             vapour=DummyGas(),
             pressures=self.pressure.to("bar").value,

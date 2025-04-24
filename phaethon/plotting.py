@@ -266,6 +266,7 @@ def plot_tau(
         vmin=-6.1,
         vmax=1.1,
         cmap=cmap,
+        edgecolor="face",
     )
     # for c in cs.collections:
     #     c.set_edgecolor("face")
@@ -381,3 +382,48 @@ def plot_condensation(
     fig.tight_layout()
     fig.subplots_adjust(wspace=0.1)
     fig.show()
+
+def plot_conddegree_elems(
+    result: PhaethonResult, cond_mode: Literal["none", "equilibrium", "rainout"], ax: Optional[object] = None,
+):
+    """
+    A postprocessing tool to plot condensation degrees of elements.
+
+    Parameters
+    ----------
+        cond_mode: Literal["none", "equilibrium", "rainout"]
+            none:
+                No condensation.
+            equilibrium:
+                Equilibrium condensation, conserves elemental comp. along column.
+            rainout:
+                Removes elements from layer if they condense, runs from bottom
+                to top of the atmosphere.
+    """
+
+    element_cond_degree, cond_number_density = result.run_cond(
+        cond_mode=cond_mode, full_output=False
+    )
+
+    # axis already defined? if not, make new
+    if ax is None:
+        fig, _ax = plt.subplots(1, 1)
+    else:
+        _ax = ax
+
+    # elemental condensation fraction
+    for elem in element_cond_degree.columns:
+        if np.any(element_cond_degree[elem]>0.0):
+            mask = element_cond_degree[elem]>0.0
+            _ax.plot(
+                np.log10(element_cond_degree[elem][mask]),
+                np.log10(result.pressure.to("bar").value[mask]),
+                label=elem,
+            )
+    labelLines(_ax.get_lines())
+
+    if ax is None:
+        _ax.invert_yaxis()
+        # TODO: axis lables
+        fig.tight_layout()
+        fig.show()

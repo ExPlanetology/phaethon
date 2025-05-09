@@ -319,7 +319,7 @@ class PhaethonPipeline:
 
         # equilibriate atmosphere-melt interface, compute atmosphere compositon
         self.atmo = self.vapour_engine.equilibriate_vapour(temperature=t_melt)
-        self.p_boa = self.atmo.p_total  # bar
+        self.p_boa = self.atmo.p_total # bar
 
         # check result of outgassing
         if self.atmo.log_p.empty:
@@ -330,13 +330,10 @@ class PhaethonPipeline:
                 + f" ({self.p_toa} bar)!"
             )
 
-        # inform HELIOS about the change in atmospheric pressure
-        self._keeper.p_boa = float(self.atmo.p_total) / 1e-6  # weird HELIOS scaling (dyne)
-
         # chemistry look-up tables with FastChem
         p_grid, t_grid = self.fastchem_coupler.get_grid(
             pressures=np.logspace(
-                np.log10(self.p_toa), np.log10(self.atmo.p_total), 100
+                np.log10(self.p_toa), np.log10(self.p_boa), 100
             ),
             temperatures=np.linspace(1000, 6000, 100),
         )
@@ -349,7 +346,7 @@ class PhaethonPipeline:
         )
 
         # solve radiative transfer
-        self._solve_rad_trans()
+        self._solve_rad_trans(p_boa=self.p_boa)
 
         # store bottom-of-atmosphere temperature
         self.t_boa = self._keeper.T_lay[self._keeper.nlayer]
@@ -579,12 +576,15 @@ class PhaethonPipeline:
         )
         keeper.f_factor = np.float64(self.planetary_system.planet.dilution_factor)
 
-    def _solve_rad_trans(self):
+    def _solve_rad_trans(self, p_boa: float):
         """
         Solves the radiative transfer problem for a specified atmosphere using HELIOS
         """
 
-        # read mixing ratios of gas species
+        # inform HELIOS about the change in atmospheric pressure
+        self._keeper.p_boa = float(p_boa) / 1e-6  # weird HELIOS scaling (dyne)
+
+        # read mixing ratios of gas species from fastchem file
         self._reader.read_species_mixing_ratios(self._keeper)
 
         # ???

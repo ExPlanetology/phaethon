@@ -111,8 +111,8 @@ class PhaethonPipeline:
             delta_temp_abstol=None,
             t_init=None,
             max_iter=15,
-            tmelt_limits=(100., 9000.)
-        )
+            tmelt_limits=(100.0, 9000.0),
+        ),
     ) -> None:
         """
         Init the phaethon pipeline.
@@ -220,6 +220,7 @@ class PhaethonPipeline:
     def run(
         self,
         t_abstol: float = 35.0,
+        t_melt_init: Optional[float] = None,
         param_file: str = DEFAULT_PARAM_FILE,  # TODO: implement correct path type in type hint!
         cuda_kws: Optional[dict] = None,
         logfile_name: str = "phaethon.log",
@@ -250,16 +251,21 @@ class PhaethonPipeline:
         # initialise HELIOS
         self._helios_setup(param_file=param_file, cuda_kws=cuda_kws)
 
-        # Inital temperature of the melt, based on the irradiation temperature
+        # Inital temperature of the melt, based on the irradiation temperature or constant input
         self.planetary_system.calc_pl_temp()
-        self.t_melt = self.planetary_system.planet.temperature.value
+        self.t_melt = (
+            self.planetary_system.planet.temperature.value
+            if t_melt_init is None
+            else t_melt_init
+        )
+        assert(self.t_melt > 0), Exception("self.t_melt must be > 0")
 
         # run the loop
         start: float = time.time()
         logger.info(f"Starting temperature (melt): {self.t_melt} K")
 
-        try:            
-            # run full radiative transfer forward model
+        try:
+            # define function to optimize (rootfinder)
             def tboa_func(t_melt: float) -> float:
                 self._single_forward_iteration(t_melt=t_melt)
                 return self.t_boa
@@ -277,12 +283,12 @@ class PhaethonPipeline:
             self._write_helios_output()
             self.info_dump()
 
-            # final fastchem run, generate atmospheric abundance profile
+            # final fastchem run, generate atmospheric abundance profiles
             self._final_fastchem_run()
 
             end: float = time.time()
             logger.info(f"Finished. Duration: {(end - start) / 60.} min")
-        
+
         # log error, just in case
         except Exception as e:
             warnings.warn(str(e))
@@ -325,7 +331,7 @@ class PhaethonPipeline:
             )
 
         # inform HELIOS about the change in atmospheric pressure
-        self._keeper.p_boa = float(self.atmo.p_total) / 1e-6  # weird HELIOS scaling
+        self._keeper.p_boa = float(self.atmo.p_total) / 1e-6  # weird HELIOS scaling (dyne)
 
         # chemistry look-up tables with FastChem
         p_grid, t_grid = self.fastchem_coupler.get_grid(
@@ -347,7 +353,6 @@ class PhaethonPipeline:
 
         # store bottom-of-atmosphere temperature
         self.t_boa = self._keeper.T_lay[self._keeper.nlayer]
-
 
     def _final_fastchem_run(self) -> None:
         """

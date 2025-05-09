@@ -397,7 +397,13 @@ class PhaethonPipeline:
     def _wipe_helios_memory(self, cuda_kws: Dict[str, str]) -> None:
         """
         Clears the cached data from HELIOS in order to free memory; is called at the end of the
-        pipeline.
+        pipeline. Otherwise, HELIOS might crash after subsequent calls to the pipeline.
+
+        Parameters
+        ----------
+        cuda_kws : dict, optional
+            Additional keywords for CUDA configuration. Needed during reset of the HELIOS
+            computation module.
         """
         self._reader = read.Read()
         self._keeper = quant.Store()

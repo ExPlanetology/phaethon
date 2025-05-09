@@ -17,7 +17,8 @@
 # along with Phaethon.  If not, see <https://www.gnu.org/licenses/>.
 #
 """
-A root-finding function usefull for phaethon.
+A root-finding function for phaethon that tries to minimize the number of steps taken during the
+search for the lowest ΔT.
 """
 from dataclasses import dataclass, field
 import logging
@@ -104,7 +105,7 @@ class PhaethonConvergenceError(Exception):
     """Exception for when the root finder could not find a solution"""
 
     def __init__(self):
-        # TODO: report best values, abs_tol, t_init & number of iterations!
+        # TODO: report best values, abs_tol, t_init & number of iterations, as well as trace!
         super().__init__(
             "Phaethon could not converge to a solution in time."
             + " Maybe increase number of iterations,"
@@ -251,7 +252,7 @@ class PhaethonRootFinder:
         a non-optimal solution. TODO: Maybe its better to be explorative instead?
 
         NOTE: Re-initializes the optimizer everytime the function is called. Might be inefficient,
-        but a.) this occasion should be  rare and b.) would make the code slightly more convoluted
+        but a.) this occasion should be rare and b.) would make the code slightly more convoluted
         so we keep it nicely isolated in a single function.
         """
         self._bayesian_optimizer = bayes_opt.BayesianOptimization(
@@ -261,7 +262,7 @@ class PhaethonRootFinder:
             acquisition_function=bayes_opt.acquisition.ExpectedImprovement(xi=0.0),
         )
 
-        # warm start for the optimizer by passing it the previous points
+        # warm start for the optimizer by passing the previous points
         for entry in self.trace:
             self._bayesian_optimizer.register(
                 params={"t_melt": entry.tmelt},
@@ -276,7 +277,8 @@ class PhaethonRootFinder:
 
     def _visualize(self, target_temp: Optional[float], n_samples: int = 1000) -> None:
         """
-        Visualize the problem. Mostly for debugging purposes only.
+        Visualize the problem. Only for debugging purposes. Should not be used with computationally
+        expensive functions!
         """
 
         t_arr = np.linspace(min(self.tmelt_limits), max(self.tmelt_limits), n_samples)

@@ -19,6 +19,7 @@
 """
 Utilities for phaethon
 """
+import functools
 from typing import Dict, Tuple
 from molmass import Formula
 import signal
@@ -84,16 +85,20 @@ class Timeout(Exception):
 def timeout_handler(signum, frame):
     raise Timeout("Function call timed out")
 
-def run_with_timeout(func, args=(), kwargs={}, timeout=5):
+def timeout(timeout=5):
     """
-    Run a function with a timeout. If triggered, an Exception is raised
+    Decorator to run a function with a timeout. Time in seconds.
     """
-    # Set the timeout handler for the alarm signal
-    signal.signal(signal.SIGALRM, timeout_handler)
-
-    signal.alarm(timeout)  # Set an alarm for the specified timeout
-    try:
-        result = func(*args, **kwargs)
-    finally:
-        signal.alarm(0)  # Cancel the alarm
-    return result
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            # Set the timeout handler for the alarm signal
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(timeout)  # Set an alarm for the specified timeout
+            try:
+                result = func(*args, **kwargs)
+            finally:
+                signal.alarm(0)  # Cancel the alarm
+            return result
+        return wrapper
+    return decorator

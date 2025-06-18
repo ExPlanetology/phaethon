@@ -21,6 +21,8 @@ The main pipeline that streamlines the computation of the structure of an outgas
 """
 
 import importlib
+import traceback
+import sys
 import warnings
 import json
 import logging
@@ -291,9 +293,11 @@ class PhaethonPipeline:
 
         # log error, just in case
         except Exception as e:
-            #warnings.warn(str(e))
-            logger.error(f"{e}")
-            raise Exception(e)
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback_details = traceback.format_exception(exc_type, exc_value, exc_traceback)
+            logger.error("".join(traceback_details))
+            raise Exception(f'An error occured: "{exc_value}". For more information, consult the '
+            + f"logfile at {self.outdir + logfile_name}")
 
         # clear cached helios data, because they can occupy large amounts of memory
         finally:

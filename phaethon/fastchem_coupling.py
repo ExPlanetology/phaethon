@@ -1,4 +1,4 @@
-# 
+#
 # Copyright 2024-2025 Fabian L. Seidler
 #
 # This file is part of Phaethon.
@@ -25,7 +25,7 @@ import tempfile
 import logging
 import os
 from enum import Enum
-from typing import Literal, Tuple, Union, Optional, Dict
+from typing import Literal, Tuple, Union, Optional, Dict, List
 import numpy as np
 import pandas as pd
 
@@ -54,6 +54,7 @@ STANDARD_FASTCHEM_COND_EQCONST = (
 #   ENUMS
 # ================================================================================================
 
+
 class CondensationMode(Enum):
     """
     Encapsualtes the descrete condensation modes allowed in FastChem
@@ -64,9 +65,11 @@ class CondensationMode(Enum):
     EQ_COND = "equilibrium condensation"
     RAINOUT = "rain-out of condensates"
 
+
 # ================================================================================================
 #   CLASSES
 # ================================================================================================
+
 
 class FastChemCoupler:
     """
@@ -75,8 +78,10 @@ class FastChemCoupler:
     after radiative equilibrium has been achieved.
     """
 
+    #pylint: disable=too-many-arguments
     def __init__(
         self,
+        *,
         path_to_eqconst: Union[str, os.PathLike] = STANDARD_FASTCHEM_GAS_EQCONST,
         path_to_condconst: Union[str, os.PathLike] = STANDARD_FASTCHEM_COND_EQCONST,
         verbosity_level: Literal[0, 1, 2, 3, 4] = 0,
@@ -213,7 +218,7 @@ class FastChemCoupler:
             cond_mode = self.cond_mode
 
         if not isinstance(cond_mode, CondensationMode):
-                raise TypeError("'cond_mode' must be of type 'phaethon.CondensationMode'!")
+            raise TypeError("'cond_mode' must be of type 'phaethon.CondensationMode'!")
 
         match cond_mode:
             case CondensationMode.NO_COND:
@@ -275,10 +280,11 @@ class FastChemCoupler:
         pressure: float,
         temperature: float,
         *,
-        verbosity_level: Literal[0, 1, 2, 3, 4] = 0,
-        ref_elem: str = "O",
+        verbosity_level: Optional[Literal[0, 1, 2, 3, 4]] = None,
+        ref_elem: Optional[str] = None,
         cond_mode: Optional[CondensationMode] = None,
-    ) -> IdealGasMixture:
+        full_output: bool = False,
+    ) -> Tuple[IdealGasMixture, pd.DataFrame, pd.DataFrame]:
         """
         Equilibrates a gas composition at a singe pressure and temperature and returns its result
         as an IdealGasMixture.
@@ -288,7 +294,9 @@ class FastChemCoupler:
         if isinstance(vapour, IdealGasMixture):
             starting_gas: IdealGasMixture = vapour
         else:
-            starting_gas: IdealGasMixture = IdealGasMixture(p_bar=vapour)
+            starting_gas: IdealGasMixture = IdealGasMixture.new_from_pressure(
+                p_bar=vapour
+            )
 
         # Since FastChem operates with physical in- and output files, we have to generate temporary
         # files for on-the-fly calculations.
@@ -297,7 +305,8 @@ class FastChemCoupler:
             # pass chemistry to fastchem; places a FastChem input file in outdir; needs a reference
             # element to scale the abundances
             starting_gas.to_fastchem(
-                outfile=tmpdir + "input_chem.dat", reference_element=self.ref_elem
+                outfile=tmpdir + "input_chem.dat",
+                reference_element=ref_elem if ref_elem is not None else self.ref_elem,
             )
 
             # create a FastChem object
@@ -305,7 +314,11 @@ class FastChemCoupler:
                 tmpdir + "input_chem.dat",
                 str(self.path_to_eqconst),
                 str(self.path_to_condconst),
-                self.verbosity_level,
+                (
+                    verbosity_level
+                    if verbosity_level is not None
+                    else self.verbosity_level
+                ),
             )
 
             # create the input and output structures for FastChem
@@ -320,7 +333,9 @@ class FastChemCoupler:
                 cond_mode = self.cond_mode
 
             if not isinstance(cond_mode, CondensationMode):
-                raise TypeError("'cond_mode' must be of type 'phaethon.CondensationMode'!")
+                raise TypeError(
+                    "'cond_mode' must be of type 'phaethon.CondensationMode'!"
+                )
 
             match cond_mode:
                 case CondensationMode.NO_COND:
@@ -347,21 +362,20 @@ class FastChemCoupler:
                 fastchem,
             )
 
-            # # TODO: Maybe also read condensation?
-            # # save condensation file
-            # saveCondOutput(
-            #     tmpdir + "cond_chem.dat",
-            #     temperatures,
-            #     pressures,
-            #     output_data.element_cond_degree,
-            #     output_data.number_densities_cond,
-            #     fastchem,
-            #     output_species=None,
-            #     additional_columns=None,
-            #     additional_columns_desc=None,
-            # )
+            # save condensation file
+            saveCondOutput(
+                tmpdir + "cond_chem.dat",
+                np.array(input_data.temperature),
+                np.array(input_data.pressure),
+                output_data.element_cond_degree,
+                output_data.number_densities_cond,
+                fastchem,
+                output_species=None,
+                additional_columns=None,
+                additional_columns_desc=None,
+            )
 
-            # read gas molfractions from FastChem output
+            # read gas molfractions from FastChem output -> into pressure
             full_frame: pd.DataFrame = pd.read_csv(tmpdir + "gas_chem.dat", sep=r"\s+")
             full_frame.rename(
                 columns={
@@ -372,13 +386,43 @@ class FastChemCoupler:
                 errors="ignore",
                 inplace=True,
             )
-
             species: List[str] = list(
                 full_frame.drop(
-                    [r"T(K)", r"P(bar)", r"n_<tot>(cm-3)", r"n_g(cm-3)", r"m(u)"], axis=1
+                    [r"T(K)", r"P(bar)", r"n_<tot>(cm-3)", r"n_g(cm-3)", r"m(u)"],
+                    axis=1,
                 ).keys()
             )
-
             gas_frame: pd.DataFrame = full_frame[species]
 
-        return IdealGasMixture(p_bar=gas_frame.iloc[0] * pressure)
+        final_gas: IdealGasMixture = IdealGasMixture.new_from_pressure(
+            p_bar=gas_frame.iloc[0] * pressure
+        )
+
+        # read condensates
+        avail_elems: List[str] = final_gas.elem_molfrac.index.to_list()
+        full_frame: pd.DataFrame = pd.read_csv(tmpdir + "cond_chem.dat", sep=r"\s+")
+        full_frame.rename(
+            columns={
+                r"#p(bar)": r"P(bar)",
+                r"#P(bar)": r"P(bar)",
+                r"T(k)": r"T(K)",
+            },
+            errors="ignore",
+            inplace=True,
+        )
+        cond_degree_frame: pd.Series = full_frame[avail_elems].iloc[
+            0
+        ]  # its only one P-T point...
+        cond_species_numbers: pd.Series = full_frame.drop(
+            avail_elems + [r"T(K)", r"P(bar)"], axis=1
+        ).iloc[0]
+
+        if full_output:
+            return (
+                final_gas,
+                cond_degree_frame,
+                cond_species_numbers,
+                fastchem,
+                output_data,
+            )
+        return final_gas, cond_degree_frame, cond_species_numbers

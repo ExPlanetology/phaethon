@@ -1,4 +1,4 @@
-# 
+#
 # Copyright 2024-2025 Fabian L. Seidler
 #
 # This file is part of Phaethon.
@@ -21,8 +21,9 @@ A tool to perform all calculations associated to an ideal gas (e.g. converting p
 ratios, determining elemental fractions, producing a FastChem input file).
 """
 
+from dataclasses import dataclass
 import logging
-from typing import Union
+from typing import Union, Optional, List, Type, TypeVar
 
 import numpy as np
 import pandas as pd
@@ -31,49 +32,10 @@ from molmass import Formula
 
 logger = logging.getLogger(__name__)
 
-
-def get_stoichiometry(formula: str) -> dict:
-    """
-    Splits any chemical formula into its stoichiometry.
-    """
-    stoichiometry: dict = {}
-    i: int = 0
-    while i < len(formula):
-        if formula[i].isupper():
-            element = formula[i]
-            i += 1
-            count = ""
-            while i < len(formula) and formula[i].islower():
-                element += formula[i]
-                i += 1
-            while i < len(formula) and formula[i].isdigit():
-                count += formula[i]
-                i += 1
-            if count == "":
-                count = "1"
-            stoichiometry[element] = int(count)
-        else:
-            i += 1
-    return stoichiometry
+T = TypeVar("T")
 
 
-def get_compound_mass(formula: str) -> float:
-    """
-    Returns the molar mass of a chemical compound, e.g. SiO2
-
-    Returns
-    -------
-        mass : float
-            mass per molecule, in atomic mass units
-    """
-    stoich: dict = get_stoichiometry(formula)
-    mass: float = 0.0
-    for elem, stoich_coef in stoich.items():
-        mass += stoich_coef * Formula(elem).mass
-
-    return mass
-
-
+@dataclass(frozen=True)
 class IdealGasMixture:
     """
     A class to perform all calculations associated to an ideal gas.
@@ -87,8 +49,10 @@ class IdealGasMixture:
 
     # pylint: disable=too-many-instance-attributes
 
-    _p_bar: pd.Series
+    gas_species_names: List[str]
+    p_bar: pd.Series
     log_p: pd.Series
+    moles: pd.Series
     p_total: pd.Series
     molfrac: pd.Series
     elem_molfrac: pd.Series
@@ -97,61 +61,121 @@ class IdealGasMixture:
     mol_masses: pd.Series
     mixing_ratios: pd.Series
 
-    def __init__(self, p_bar: Union[dict, pd.Series]):
-
-        self._p_bar: pd.Series = pd.Series()
-        self.log_p: pd.Series = pd.Series()
-        self.p_total: float = np.nan
-        self.molfrac: pd.Series = pd.Series()
-        self.elem_molfrac: pd.Series = pd.Series()
-        self.mmw: float = np.nan
-        self.gas_stoich: pd.DataFrame = pd.DataFrame()
-        self.mol_masses: pd.Series = pd.Series()
-        self.mixing_ratios: pd.Series = pd.Series()
-
-        self.p_bar: pd.Series = pd.Series(p_bar)
-
-    @property
-    def p_bar(self) -> pd.Series:
-        """Return total pressure of gas mixture"""
-        return self._p_bar
-
-    @p_bar.setter
-    def p_bar(self, p_dict: dict) -> None:
+    @classmethod
+    def new_from_pressure(
+        cls: Type[T],
+        p_bar: Union[dict, pd.Series],
+        temperature: Optional[float] = np.nan,
+        volume: Optional[float] = np.nan,
+    ) -> None:
         """
-        Build gas mixture from partial pressure dict.
+        Build gas mixture from partial pressure dict/series.
 
         Parameters
         ----------
-            p_dict : dict
-                Dictionary containint the partial pressures of gas species, in bar.
+            p_dict : Union[dict, pd.Series]
+                Dictionary or Series containing the partial pressures of gas species, in bar.
         """
-        self._p_bar = pd.Series(p_dict)
-        self.log_p = np.log10(self._p_bar)
-        self.p_total = self._p_bar.sum()
-        self.gas_stoich = self._calc_stoich(self._p_bar)
-        self.mol_masses = self._calc_molmasses(self._p_bar)
-        self.elem_molfrac = self._calc_elem_molfrac(self.gas_stoich, self._p_bar)
-        self.molfrac = self.p_bar / np.sum(self.p_bar)
-        self.mmw = np.dot(self.mol_masses, self.molfrac)
-        self.mixing_ratios = self._calc_volume_mixing_ratios(self.molfrac)
+        p_bar = pd.Series(p_bar).sort_index()
+        gas_species_names: List[str] = p_bar.sort_index().index.to_list()
+        molfrac = p_bar / np.sum(p_bar)
+        gas_stoich = cls._calc_stoich(gas_species_names)
+        mol_masses = cls._calc_molmasses(gas_species_names)
+        elem_molfrac = cls._calc_elem_molfrac(gas_stoich, p_bar) # for ideal gas, moles ~ p_bar
+        mixing_ratios = cls._calc_volume_mixing_ratios(molfrac)
+
+        moles = p_bar * volume / (sc.R * temperature)
+
+        return cls(
+            gas_species_names=gas_species_names,
+            p_bar=pd.Series(p_bar),
+            log_p=np.log10(p_bar),
+            p_total=p_bar.sum(),
+            moles=moles,
+            gas_stoich=gas_stoich,
+            mol_masses=mol_masses,
+            elem_molfrac=elem_molfrac,
+            molfrac=molfrac,
+            mmw=np.dot(mol_masses, molfrac),
+            mixing_ratios=mixing_ratios,
+        )
+
+    @classmethod
+    def new_from_moles(
+        cls: Type[T],
+        moles: Union[dict, pd.Series],
+        temperature: Optional[float] = np.nan,
+        volume: Optional[float] = np.nan,
+    ) -> None:
+        """
+        Build gas mixture from a dict/series of moles of input gases.
+
+        Parameters
+        ----------
+            p_dict : Union[dict, pd.Series]
+                Dictionary or Series containing the partial pressures of gas species, in bar.
+            temperature : float
+                Temperature, in K.
+            volume : float
+                Volume of the gas, in m³.
+        """
+
+        moles = pd.Series(moles).sort_index()
+
+        gas_species_names: List[str] = moles.sort_index().index.to_list()
+
+        # evaluate ideal gas law
+        p_bar = moles * sc.R * temperature / volume
+
+        molfrac = moles / moles.sum()
+        gas_stoich = cls._calc_stoich(gas_species_names)
+        mol_masses = cls._calc_molmasses(gas_species_names)
+        elem_molfrac = cls._calc_elem_molfrac(gas_stoich, moles)
+        mixing_ratios = cls._calc_volume_mixing_ratios(molfrac)
+
+        return cls(
+            gas_species_names=gas_species_names,
+            p_bar=p_bar,
+            log_p=np.log10(p_bar),
+            p_total=p_bar.sum(),
+            moles=moles,
+            gas_stoich=gas_stoich,
+            mol_masses=mol_masses,
+            elem_molfrac=elem_molfrac,
+            molfrac=molfrac,
+            mmw=np.dot(mol_masses, molfrac),
+            mixing_ratios=mixing_ratios,
+        )
 
     def __add__(self, other):
         """
         Add two GasMixtures together.
         """
         assert isinstance(other, IdealGasMixture)
-        return IdealGasMixture(self.p_bar.add(other.p_bar, fill_value=0.0))
+
+        # if both were initalised by pressure
+        if not self.p_bar.isna().any() and not other.p_bar.isna().any():
+            return IdealGasMixture.new_from_pressure(
+                self.p_bar.add(other.p_bar, fill_value=0.0)
+            )
+        if not self.moles.isna().any() and not other.moles.isna().any():
+            return IdealGasMixture.new_from_moles(
+                self.moles.add(other.moles, fill_value=0.0)
+            )
+        raise ValueError(
+            "Both `GasMixture` objects must be initialized either by pressure or by moles to "
+            + "perform addition."
+        )
 
     @staticmethod
-    def _calc_stoich(p_bar: pd.Series) -> pd.DataFrame:
+    def _calc_stoich(gas_species_names: List[str]) -> pd.DataFrame:
         """
-        Calculate the stoichiometric matrix, containing all gas species.
+        Calculate the stoichiometric of all gas species, order them in a matrix.
 
         Parameters
         ----------
-            p_bar : pd.Series
-                Pressures of gas species, in bar.
+            gas_species_names: List[str]
+                List of species names, present in gas.
         Returns
         -------
             gas_stoich : pd.DataFrame
@@ -159,26 +183,31 @@ class IdealGasMixture:
         """
         gas_stoich = pd.DataFrame()
 
-        for i in range(len(p_bar)):
-            species_formula = p_bar.index[i]
-            species_stoich = pd.Series(get_stoichiometry(species_formula))
+        for species_formula in gas_species_names:
+            if species_formula == "e-":
+                species_stoich = pd.Series({"e-": 1.0})
+            else:
+                species_stoich = pd.Series(
+                    Formula(species_formula).composition().dataframe().Count.to_dict()
+                )
             gas_stoich = pd.concat([gas_stoich, species_stoich], axis=1)
 
         gas_stoich = gas_stoich.T
-        gas_stoich.index = p_bar.index
+        gas_stoich.index = gas_species_names
         gas_stoich = gas_stoich.replace(np.nan, 0.0)
+        gas_stoich.sort_index(inplace=True)
 
         return gas_stoich
 
     @staticmethod
-    def _calc_molmasses(p_bar: pd.Series) -> pd.Series:
+    def _calc_molmasses(gas_species_names: List[str]) -> pd.Series:
         """
-        Calculate the molmasses of gas species.
+        Calculate the molmasses of all gas species, order them in a pandas Series.
 
         Parameters
         ----------
-            p_bar : pd.Series
-                Pressures of gas species, in bar.
+            gas_species_names: List[str]
+                List of species names, present in gas.
         Returns
         -------
             mol_masses : pd.Series
@@ -186,15 +215,17 @@ class IdealGasMixture:
         """
         mol_masses = {}
 
-        for i in range(len(p_bar)):
-            species_formula = p_bar.index[i]
-            species_molmass = get_compound_mass(species_formula)
-            mol_masses = mol_masses | {species_formula: species_molmass}
+        for species_formula in gas_species_names:
+            if species_formula == "e-":
+                mol_masses = mol_masses | {species_formula: 5.48579909e-4}
+            else:
+                species_molmass = Formula(species_formula).mass
+                mol_masses = mol_masses | {species_formula: species_molmass}
 
         return pd.Series(mol_masses)
 
     @staticmethod
-    def _calc_elem_molfrac(gas_stoich: pd.DataFrame, p_bar: pd.Series) -> pd.Series:
+    def _calc_elem_molfrac(gas_stoich: pd.DataFrame, gas_moles: pd.Series) -> pd.Series:
         """
         Calculate the molar fractions of elements.
 
@@ -202,19 +233,20 @@ class IdealGasMixture:
         ----------
             gas_stoich : pd.DataFrame
                 Stoichiometric matrix.
-            p_bar : pd.Series
-                Pressures of gas species, in bar.
+            gas_moles : pd.Series
+                Moles of gas species, in mole.
         Returns
         -------
             elem_molfrac : pd.Series
                 Fractions of elements in the gas mixture.
         """
-        n_gaselem_dimless = np.dot(gas_stoich.T, p_bar)
+        n_gaselem_dimless = np.dot(gas_stoich.sort_index().T, gas_moles.sort_index())
 
         elem_molfrac = pd.Series(
             data=n_gaselem_dimless / np.sum(n_gaselem_dimless),
             index=gas_stoich.columns,
         )
+        elem_molfrac.sort_index()
 
         return elem_molfrac
 

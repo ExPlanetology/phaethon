@@ -156,7 +156,7 @@ class PhaethonPipeline:
         self.opacity_path = opacity_path
         self.opac_species = opac_species
         self.scatterers = scatterers
-        self.atmo = IdealGasMixture({})
+        self.atmo = IdealGasMixture.new_from_pressure({})
         self.p_toa = p_toa
         self.p_boa = None
         self.t_boa = self.planetary_system.planet.temperature.value
@@ -291,11 +291,13 @@ class PhaethonPipeline:
 
         # log error, just in case
         except Exception as e:
-            warnings.warn(str(e))
+            #warnings.warn(str(e))
             logger.error(f"{e}")
+            raise Exception(e)
 
         # clear cached helios data, because they can occupy large amounts of memory
         finally:
+            logger.info(f"HELIOS memory wiped")
             self._wipe_helios_memory(cuda_kws=cuda_kws)
 
     # ============================================================================================

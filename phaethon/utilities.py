@@ -1,4 +1,4 @@
-# 
+#
 # Copyright 2025 Fabian L. Seidler
 #
 # This file is part of Phaethon.
@@ -24,11 +24,14 @@ from typing import Dict, Tuple
 from molmass import Formula
 import signal
 
+
 def formula_to_hill(formula: str) -> str:
     """
     Converts a chemical formula (e.g. SiO) into Hill's notation (O1Si1) for FastChem.
     """
-    comp: Dict[str, Tuple[float, float, float]] = Formula(formula).composition().asdict()
+    comp: Dict[str, Tuple[float, float, float]] = (
+        Formula(formula).composition().asdict()
+    )
 
     # if its only one element
     if len(comp) == 1:
@@ -41,6 +44,7 @@ def formula_to_hill(formula: str) -> str:
 
     return hill_formula
 
+
 def formula_to_latex(formula: str) -> str:
     """
     Converts a chemical formula (e.g. SiO, O1Si1) into latex markdown.
@@ -49,7 +53,15 @@ def formula_to_latex(formula: str) -> str:
     if formula == "e-":
         return "e-"
 
-    comp: Dict[str, Tuple[float, float, float]] = Formula(formula).composition().asdict()
+    # extract formula; FastChem has suffixes to formulas which we want to avoid at this stage.
+    suffix = None
+    if "_" in formula:
+        (formula, suffix) = formula.split("_")
+
+    # extract stoichiometry
+    comp: Dict[str, Tuple[float, float, float]] = (
+        Formula(formula).composition().asdict()
+    )
 
     # most commonly, O is in the end of the formula
     oxy_string = ""
@@ -58,7 +70,6 @@ def formula_to_latex(formula: str) -> str:
         oxy_stoich: int = comp.pop("O")[0]
         if oxy_stoich > 1:
             oxy_string += "_{" + str(oxy_stoich) + "}"
-
 
     # comp is already sorted in Hill notation
     latex_formula: str = "$"
@@ -77,18 +88,26 @@ def formula_to_latex(formula: str) -> str:
     latex_formula += oxy_string
     latex_formula += "$"
 
+
+    if suffix is not None:
+        latex_formula += f"({suffix})"
+
     return latex_formula
+
 
 class Timeout(Exception):
     pass
 
+
 def timeout_handler(signum, frame):
     raise Timeout("Function call timed out")
+
 
 def timeout(timeout=5):
     """
     Decorator to run a function with a timeout. Time in seconds.
     """
+
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -100,5 +119,7 @@ def timeout(timeout=5):
             finally:
                 signal.alarm(0)  # Cancel the alarm
             return result
+
         return wrapper
+
     return decorator

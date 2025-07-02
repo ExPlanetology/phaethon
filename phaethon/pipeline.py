@@ -107,13 +107,12 @@ class PhaethonPipeline:
         scatterers: set,
         opacity_path: str,
         p_toa: float = 1e-8,
-        nlayer: int = 50,
         root_finder: PhaethonRootFinder = PhaethonRootFinder(
             tboa_func=None,
             delta_temp_abstol=None,
             t_init=None,
             max_iter=15,
-            tmelt_limits=(100.0, 9000.0),
+            tmelt_limits=(10.0, 10000.0),
         ),
     ) -> None:
         """
@@ -143,8 +142,6 @@ class PhaethonPipeline:
         t_grid_fastchem : np.ndarray, optional
             Temperature grid for fast chemistry calculations. Default is a linear space from 500 to
             6000 K.
-        nlayer : int, optional
-            Number of layers in the model. Default is 50.
         """
 
         if not outdir.endswith("/"):
@@ -163,9 +160,6 @@ class PhaethonPipeline:
         self.p_boa = None
         self.t_boa = self.planetary_system.irrad_temp.to("K").value
         self.t_melt = None
-
-        # part of advanced options
-        self.nlayer = nlayer  # No. of atmospheric layers
 
         # solver
         self._root_finder = root_finder
@@ -459,11 +453,8 @@ class PhaethonPipeline:
         )
         self._reader.output_path = self.outdir
 
-        self._keeper.run_type = run_type
-        self._keeper.nlayer = np.int32(self.nlayer)
-        self._keeper.ninterface = np.int32(self.nlayer + 1)
-
         # Set run type automation
+        self._keeper.run_type = run_type
         self._configure_run_type(self._keeper)
 
         # Set species file based on run type

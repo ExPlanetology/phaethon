@@ -1,16 +1,17 @@
 """
 A schematic implementation of how phaethon is supposed to work. Due to the absence of a FOSS
-license for MAGMA, we cannot share the modified code used in our Study, Seidler et al. 2024. 
+license for MAGMA, we cannot share the modified code used in our Study, Seidler et al. 2024.
 Hence, this code will not work.
 
 If you desire to run the script, please obtain a copy of the MAGMA code and modify it according
 to Seidler et al. 2024.
 """
 
+import os
 import logging
 from typing import Callable, Dict
 from scipy.interpolate import interp1d
-import astropy.units as unit
+from astropy import units
 import pandas as pd
 
 from phaethon import (
@@ -19,17 +20,15 @@ from phaethon import (
     CircularOrbitFromPeriod,
     PlanetarySystem,
     VapourEngine,
-    PhaethonPipeline,
     FastChemCoupler,
     debug_file_logger,
 )
 from phaethon.gas_mixture import IdealGasMixture
+from phaethon.pipeline import PhaethonPipeline
 
 logger = debug_file_logger()
 
-OPACITY_PATH: str = (
-    "/home/fabian/lavaworlds/opacities/lavaplanets/R200_0.1_200_pressurebroad/"
-)
+OPACITY_PATH: str = os.environ.get("OPAC_PATH")
 
 
 class VapourEngineExample(VapourEngine):
@@ -88,7 +87,7 @@ class VapourEngineExample(VapourEngine):
             pbar[species] = 10 ** float(logp_fit(temperature))
 
         # store as vapour
-        self.vapour = IdealGasMixture(p_bar=pbar)
+        self.vapour = IdealGasMixture.new_from_pressure(p_bar=pbar)
 
         return self.vapour
 
@@ -96,11 +95,11 @@ class VapourEngineExample(VapourEngine):
 if __name__ == "__main__":
     star = Star(
         name="Sun",
-        mass=1.0 * unit.M_sun,
-        radius=1.0 * unit.R_sun,
-        t_eff=5770.0 * unit.K,
-        distance=10.0 * unit.pc,
-        metallicity=0.0 * unit.dex,
+        mass=1.0 * units.M_sun,
+        radius=1.0 * units.R_sun,
+        t_eff=5770.0 * units.K,
+        distance=10.0 * units.pc,
+        metallicity=0.0 * units.dex,
     )
     star.get_spectrum_from_file(
         outdir="output/stellar_spectra/",
@@ -114,19 +113,17 @@ if __name__ == "__main__":
 
     planet = Planet(
         name="55 Cnc e",
-        mass=1.0 * unit.M_earth,
-        radius=1.0 * unit.R_earth,
+        mass=1.0 * units.M_earth,
+        radius=1.0 * units.R_earth,
         bond_albedo=0.0,
         dilution_factor=2.0 / 3.0,
-        internal_temperature=0 * unit.K,
+        internal_temperature=0 * units.K,
     )
 
-    planetary_system = PlanetarySystem(
-        star=star, planet=planet, orbit=CircularOrbitFromPeriod(period=1 * unit.day)
+    # build a planet with fixed irradiation temperature, semi-major axis is automatically adjusted
+    planetary_system = PlanetarySystem.build_from_irrad_temp(
+        irrad_temp=2500, planet=planet, star=star
     )
-
-    # To evaluate the model at a given irradiation temperature, the AU needs to be adjusted
-    planetary_system.set_semimajor_axis_from_pl_temp(t_planet=2500 * unit.K)
 
     pipeline = PhaethonPipeline(
         planetary_system=planetary_system,
@@ -136,7 +133,6 @@ if __name__ == "__main__":
         opac_species={"SiO"},
         scatterers={},
         opacity_path=OPACITY_PATH,
-        nlayer=38,
     )
 
     # You might need to adept the architecutre to your system.

@@ -1,4 +1,4 @@
-# 
+#
 # Copyright 2024-2025 Fabian L. Seidler
 #
 # This file is part of Phaethon.
@@ -21,6 +21,15 @@ Package level variables + initialisation of the package logger
 """
 
 __version__: str = "0.1.0"
+
+import dotenv
+import warnings
+
+if not dotenv.load_dotenv():
+    warnings.warn(
+        "No .env file was found! Please point the OPAC_PATH environment variable to the"
+        + " location of the opacity files."
+    )
 
 from typing import Optional
 import logging
@@ -88,7 +97,7 @@ def debug_file_logger(logfile: str = f"{__package__}.log") -> logging.Logger:
     console_handler.setFormatter(console_formatter)
     console_handler.setLevel(logging.INFO)
     package_logger.addHandler(console_handler)
-    
+
     # File logger
     file_handler: logging.Handler = logging.FileHandler(logfile)
     file_formatter: logging.Formatter = complex_formatter()

@@ -21,6 +21,7 @@ matplotlib-label-lines = "^0.7.0"
 h5py = "^3.12.1"
 tqdm = "^4.66.5"
 pyqt5 = "*"
+dotenv = "*"
 
 [tool.poetry.group.test.dependencies]
 pytest = "^7.4.4"

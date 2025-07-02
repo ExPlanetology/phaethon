@@ -28,7 +28,7 @@ import json
 import logging
 import os
 import time
-from typing import Tuple, Optional, Literal, List, Dict
+from typing import Tuple, Optional, Literal, List, Dict, Union
 from io import TextIOWrapper
 import numpy as np
 from numpy.typing import ArrayLike
@@ -161,7 +161,7 @@ class PhaethonPipeline:
         self.atmo = IdealGasMixture.new_from_pressure({})
         self.p_toa = p_toa
         self.p_boa = None
-        self.t_boa = self.planetary_system.planet.temperature.value
+        self.t_boa = self.planetary_system.irrad_temp.to("K").value
         self.t_melt = None
 
         # part of advanced options
@@ -183,7 +183,8 @@ class PhaethonPipeline:
         Dumps all info into a JSON-file in `self.outdir`.
         """
 
-        metadata = self.planetary_system.get_info()
+        # info on planet, star, and orbit
+        metadata: Dict[str, Union[float, str, int]] = self.planetary_system.info
 
         # info on outgassing routine
         vapour_engine_dict = {
@@ -254,13 +255,12 @@ class PhaethonPipeline:
         self._helios_setup(param_file=param_file, cuda_kws=cuda_kws)
 
         # Inital temperature of the melt, based on the irradiation temperature or constant input
-        self.planetary_system.calc_pl_temp()
         self.t_melt = (
-            self.planetary_system.planet.temperature.value
+            self.planetary_system.irrad_temp.to("K").value
             if t_melt_init is None
             else t_melt_init
         )
-        assert(self.t_melt > 0), Exception("self.t_melt must be > 0")
+        assert self.t_melt > 0, Exception("self.t_melt must be > 0")
 
         # run the loop
         start: float = time.time()
@@ -294,10 +294,14 @@ class PhaethonPipeline:
         # log error, just in case
         except Exception as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            traceback_details = traceback.format_exception(exc_type, exc_value, exc_traceback)
+            traceback_details = traceback.format_exception(
+                exc_type, exc_value, exc_traceback
+            )
             logger.error("".join(traceback_details))
-            raise Exception(f'An error occured: "{exc_value}". For more information, consult the '
-            + f"logfile at {self.outdir + logfile_name}")
+            raise Exception(
+                f'An error occured: "{exc_value}". For more information, consult the '
+                + f"logfile at {self.outdir + logfile_name}"
+            )
 
         # clear cached helios data, because they can occupy large amounts of memory
         finally:
@@ -325,7 +329,7 @@ class PhaethonPipeline:
 
         # equilibriate atmosphere-melt interface, compute atmosphere compositon
         self.atmo = self.vapour_engine.equilibriate_vapour(temperature=t_melt)
-        self.p_boa = self.atmo.p_total # bar
+        self.p_boa = self.atmo.p_total  # bar
 
         # check result of outgassing
         if self.atmo.log_p.empty:
@@ -338,9 +342,7 @@ class PhaethonPipeline:
 
         # chemistry look-up tables with FastChem
         p_grid, t_grid = self.fastchem_coupler.get_grid(
-            pressures=np.logspace(
-                np.log10(self.p_toa), np.log10(self.p_boa), 100
-            ),
+            pressures=np.logspace(np.log10(self.p_toa), np.log10(self.p_boa), 100),
             temperatures=np.linspace(1000, 6000, 100),
         )
         self.fastchem_coupler.run_fastchem(
@@ -565,13 +567,7 @@ class PhaethonPipeline:
         keeper.g = keeper.fl_prec(
             self.planetary_system.planet.grav.to("cm / s^2").value
         )
-        keeper.a = keeper.fl_prec(
-            self.planetary_system.orbit.get_semimajor_axis(
-                self.planetary_system.star.mass
-            )
-            .to("cm")
-            .value
-        )
+        keeper.a = keeper.fl_prec(self.planetary_system.semimajor_axis.to("cm").value)
         keeper.R_planet = keeper.fl_prec(
             self.planetary_system.planet.radius.to("cm").value
         )

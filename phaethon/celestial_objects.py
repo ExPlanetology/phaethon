@@ -24,18 +24,21 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Callable, Union
+from typing import Callable, Type, TypeVar, Union, Dict, Optional
 
-import astropy.constants as const
-import astropy.units as unit
 import numpy as np
 import numpy.typing as npt
+from scipy.interpolate import interp1d
+
+# pylint: disable = no-member
 from astropy import units
+import astropy.constants as const
 from astropy.units.core import Unit as AstropyUnit
 from astropy.units.quantity import Quantity as AstropyQuantity
 from astropy.modeling.models import BlackBody
+
 from helios.star_tool.functions import main_loop as startool_mainloop
-from scipy.interpolate import interp1d
+
 
 # ================================================================================================
 #   LOGGER
@@ -197,7 +200,7 @@ class Star:
             "w_conversion_factor": w_conversion_factor,
             "flux_conversion_factor": flux_conversion_factor,
             "temp": self.t_eff.value,
-            "distance_from_Earth": self.distance / unit.parsec,
+            "distance_from_Earth": self.distance / units.parsec,
             "R_star": self.radius / const.R_sun,
         }
         startool_output_file = outdir + self.name + ".h5"
@@ -507,9 +510,8 @@ class Planet:
     radius: AstropyUnit
     bond_albedo: float
     dilution_factor: float
-    internal_temperature: Union[None, AstropyUnit]
-    grav: Union[None, AstropyUnit] = None
-    temperature: Union[None, AstropyUnit] = None
+    internal_temperature: AstropyQuantity = 0.0 * units.Kelvin
+    grav: Optional[AstropyQuantity] = None
 
     def __post_init__(self):
         self.grav = const.G * self.mass.to("kg") / (self.radius.to("m") ** 2)
@@ -523,123 +525,306 @@ class Planet:
         return info_dict
 
 
-class PlanetarySystem:
+# ================================================================================================
+#   PLANETARY SYSTEM
+# ================================================================================================
+
+def verify_type(value: Union[float, int, AstropyQuantity], target_unit: AstropyUnit):
     """
-    Stores and manipulates data on the planetary system.
+    Verify and convert the type of the input value to an AstropyQuantity with the specified target
+    unit.
 
     Parameters
     ----------
-        star : Star
-            Star-object. See `phaethon.celestial_objects.Star`.
-        planet : Planet
-            Planet-object. See `phaethon.celestial_objects.Planet`.
-        orbit : Orbit
-            Orbit-object. See `phaethon.celestial_objects.Orbit`.
+    value : Union[float, int, AstropyQuantity]
+        The input value to be verified and converted. Can be a float, integer, or an
+        AstropyQuantity.
+    target_unit : AstropyUnit
+        The target unit to which the input value should be converted if it is a float or integer.
+
+    Returns
+    -------
+    AstropyQuantity
+        The input value converted to an AstropyQuantity with the target unit.
+
+    Raises
+    ------
+    TypeError
+        If the input value is not of type float, int, or AstropyQuantity.
+    """
+    match value:
+        case AstropyQuantity():
+            return value.to(target_unit)
+        case float():
+            return value * target_unit
+        case int():
+            return value * target_unit
+        case _:
+            raise TypeError(
+                "semimajor axis must be of unit `float` or `astropy.units.quantity`,"
+                + f" not {type(value)}"
+            )
+
+
+T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class PlanetarySystem:
+    """
+    A class to represent a planetary system with a star and a planet.
+
+    This class encapsulates the essential properties of a planetary system, including the star,
+    the planet, the semi-major axis of the planet's orbit, its orbital period, and the irradiation
+    temperature at the position of the orbit.
+
+    Attributes
+    ----------
+    star : Star
+        The star of the planetary system.
+    planet : Planet
+        Data of the planet within the system.
+    semimajor_axis : AstropyQuantity
+        The semi-major axis of the planet's orbit.
+    period : AstropyQuantity
+        The orbital period of the planet.
+    irrad_temp : float
+        The irradiation temperature at the position of the planet's orbit.
+    info : Dict[str, Union[float, Dict[str, Union[str, float]]]]
+        Additional information about the orbit and energy budget, stored as a dictionary.
     """
 
     star: Star
+    """ The star of the system."""
     planet: Planet
-    orbit: Orbit
+    """ Data of the planet. """
+    semimajor_axis: AstropyQuantity
+    """ Returns the semi-major axis of the planet. """
+    period: AstropyQuantity
+    """ Returns the period of the planet. """
+    irrad_temp: float
+    """ Irradiation temperature at position of the orbit. """
+    info: Dict[str, Union[float, Dict[str, Union[str, float]]]]
+    """ Information about orbit and energy budget, as a string."""
 
-    def __init__(
-        self,
-        star: Star,
+    @classmethod
+    def build_from_semimajor_axis(
+        cls: Type[T],
+        *,
+        semimajor_axis: Union[float, AstropyQuantity],
         planet: Planet,
-        orbit: Orbit,
-    ):
-        self.star = star
-        self.planet = planet
-        self.orbit = orbit
-
-        self.planet.temperature = self.calc_pl_temp()
-
-    def calc_pl_temp(self) -> AstropyUnit:
+        star: Star,
+    ) -> T:
         """
-        Calculates the temperature of the planet.
+        Constructs a PlanetarySystem instance using the semi-major axis of the planet's orbit.
+
+        This class method creates a new instance of the PlanetarySystem class by specifying the
+        semi-major axis of the planet's orbit, along with the planet and star objects. The semi-
+        major axis can be provided as either a float or an AstropyQuantity.
 
         Parameters
         ----------
-            bond_albedo: float
-                Bond Albedo.
-            dilution_factor : float
-                Dilution factor, dimensionless.
+        semimajor_axis : Union[float, AstropyQuantity]
+            The semi-major axis of the planet's orbit. If provided as a float, it will be converted
+            to an AstropyQuantity with an assumed unit of astronomical units (AU).
+        planet : Planet
+            The planet object containing data about the planet.
+        star : Star
+            The star object representing the star of the planetary system.
+
         Returns
         -------
-            temperature : AstropyUnit
-                Temperature of the planet.
+        PlanetarySystem
+            An instance of the PlanetarySystem class initialized with the provided semi-major axis,
+            planet, and star.
         """
-        semi_major_axis: AstropyUnit = self.orbit.get_semimajor_axis(
-            star_mass=self.star.mass
+        # semimajor axis to proper type
+        _semimajor_axis: AstropyQuantity = verify_type(
+            semimajor_axis, target_unit=units.AU
         )
-        return (
-            (1.0 - self.planet.bond_albedo)
-            * self.planet.dilution_factor
-            * (self.star.radius.to("m") / semi_major_axis.to("m")) ** 2
-            * self.star.t_eff.to("K") ** 4
+
+        # calculate period (assume circular orbit)
+        _period: AstropyQuantity = (
+            2
+            * np.pi
+            * np.sqrt(_semimajor_axis.to("m") ** 3 / (const.G * star.mass.to("kg"))).to(
+                "day"
+            )
+        )
+
+        # irradiation temperature, i.e. temperature of anobject at the position of the orbit
+        _irrad_temp: float = (
+            (1.0 - planet.bond_albedo)
+            * planet.dilution_factor
+            * (star.radius.to("m") / _semimajor_axis.to("m")) ** 2
+            * star.t_eff.to("K") ** 4
         ) ** (0.25)
 
-    def get_period(self) -> AstropyUnit:
-        """
-        Returns the orbital period of the planet.
+        # numerator = self.star.t_eff.to("K")
+        # denominator = (
+        #     (self.get_semimajor_axis().to("m") ** 2)
+        #     / (
+        #         self.dilution_factor
+        #         * (1.0 - self.bond_albedo)
+        #         * self.star.radius.to("m") ** 2
+        #     )
+        # ) ** 0.25
 
-        Returns
-        -------
-            period : astropy.core.units.Quantity
-                Orbital period of the planet.
-        """
-        return self.orbit.get_period(star_mass=self.star.mass)
+        # return numerator / denominator
 
-    def get_semimajor_axis(self) -> AstropyUnit:
-        """
-        Returns the semi-major axis of the orbit.
+        # info on planetary system
+        info = {
+            "star": star.get_info(),
+            "planet": planet.get_info(),
+            "orbit": {
+                "period [days]": _period.to("day").value,
+                "semi_major_axis [AU]": _semimajor_axis.to("AU").value,
+            },
+        }
 
-        Returns
-        -------
-            semi_major_axis : astropy.core.units.Quantity
-                Semi-major axis of the planet's orbit.
-        """
-        return self.orbit.get_semimajor_axis(star_mass=self.star.mass)
+        return cls(
+            star=star,
+            planet=planet,
+            semimajor_axis=_semimajor_axis,
+            period=_period,
+            irrad_temp=_irrad_temp,
+            info=info,
+        )
 
-    def set_semimajor_axis_from_pl_temp(self, t_planet: AstropyUnit) -> None:
+    @classmethod
+    def build_from_period(
+        cls: Type[T],
+        *,
+        period: Union[float, int, AstropyQuantity],
+        planet: Planet,
+        star: Star,
+    ) -> T:
         """
-        Calculates the semimajor axis of the planet given its temperature.
-        Updates the internal value (i.e., in self.orbit).
+        Constructs a PlanetarySystem instance using the orbital period of the planet.
+
+        This class method creates a new instance of the PlanetarySystem class by specifying the
+        orbital period of the planet, along with the planet and star objects. The period can be
+        provided as either a float or an AstropyQuantity.
 
         Parameters
         ----------
-            t_planet : astropy.units.core.Unit
-                Temperature of the planet
+        period : Union[float, AstropyQuantity]
+            The orbital period of the planet. If provided as a float, it will be converted to an
+            AstropyQuantity with an assumed unit of days.
+        planet : Planet
+            The planet object containing data about the planet.
+        star : Star
+            The star object representing the star of the planetary system.
+
         Returns
         -------
-            temperature : AstropyUnit
-                Temperature of the planet.
+        PlanetarySystem
+            An instance of the PlanetarySystem class initialized with the provided orbital period,
+            planet, and star.
         """
+        # period axis to proper type
+        _period: AstropyQuantity = verify_type(period, target_unit=units.day)
 
-        new_semimajor_axis: AstropyUnit = (
-            np.sqrt(self.planet.dilution_factor * (1.0 - self.planet.bond_albedo))
-            * self.star.radius.to("m")
-            * (self.star.t_eff.to("K") / t_planet.to("K")) ** 2
+        # calculate semi-major axis (assume circular orbit)
+        _semimajor_axis: AstropyQuantity = np.cbrt(
+            const.G * star.mass.to("kg") * _period.to("s") ** 2 / (4.0 * np.pi)
         ).to("AU")
-        self.orbit = CircularOrbitFromSemiMajorAxis(semi_major_axis=new_semimajor_axis)
-        self.planet.temperature = t_planet
 
-    def get_info(self) -> dict:
-        """
-        Returns info dict
+        # irradiation temperature, i.e. temperature of anobject at the position of the orbit
+        _irrad_temp: float = (
+            (1.0 - planet.bond_albedo)
+            * planet.dilution_factor
+            * (star.radius.to("m") / _semimajor_axis.to("m")) ** 2
+            * star.t_eff.to("K") ** 4
+        ) ** (0.25)
 
-        Returns
-        -------
-            info : dict
-                Dictionary containing information on the celestial objects in this system,
-                i.e. the star, planet and its orbit.
-        """
-        return {
-            "star": self.star.get_info(),
-            "planet": self.planet.get_info(),
+        # info on planetary system
+        info = {
+            "star": star.get_info(),
+            "planet": planet.get_info(),
             "orbit": {
-                "period": self.orbit.get_period(star_mass=self.star.mass).value,
-                "semi_major_axis": self.orbit.get_semimajor_axis(
-                    star_mass=self.star.mass
-                ).value,
+                "period [days]": _period.to("day").value,
+                "semi_major_axis [AU]": _semimajor_axis.to("AU").value,
             },
         }
+
+        return cls(
+            star=star,
+            planet=planet,
+            semimajor_axis=_semimajor_axis,
+            period=_period,
+            irrad_temp=_irrad_temp,
+            info=info,
+        )
+
+    @classmethod
+    def build_from_irrad_temp(
+        cls: Type[T],
+        *,
+        irrad_temp: Union[float, AstropyQuantity],
+        planet: Planet,
+        star: Star,
+    ) -> T:
+        """
+        Constructs a PlanetarySystem instance using the irradiation temperature at the planet's
+        orbit.
+
+        This class method creates a new instance of the PlanetarySystem class by specifying the
+        irradiation temperature at the position of the planet's orbit, along with the planet and
+        star objects. The irradiation temperature can be provided as either a float or an
+        AstropyQuantity.
+
+        Parameters
+        ----------
+        irrad_temp : Union[float, AstropyQuantity]
+            The irradiation temperature at the position of the planet's orbit. If provided as a
+            float, it will be converted to an AstropyQuantity with an assumed unit of Kelvin (K).
+        planet : Planet
+            The planet object containing data about the planet.
+        star : Star
+            The star object representing the star of the planetary system.
+
+        Returns
+        -------
+        PlanetarySystem
+            An instance of the PlanetarySystem class initialized with the provided irradiation
+            temperature, planet, and star.
+        """
+
+        # semimajor axis to proper type
+        _irrad_temp: AstropyQuantity = verify_type(irrad_temp, target_unit=units.Kelvin)
+
+        # calculate semi-major axis (assume circular orbit)
+        _semimajor_axis: AstropyQuantity = (
+            np.sqrt(planet.dilution_factor * (1.0 - planet.bond_albedo))
+            * star.radius.to("m")
+            * (star.t_eff.to("K") / _irrad_temp.to("K")) ** 2
+        ).to("AU")
+
+        # calculate period (assume circular orbit)
+        _period: AstropyQuantity = (
+            2
+            * np.pi
+            * np.sqrt(_semimajor_axis.to("m") ** 3 / (const.G * star.mass.to("kg"))).to(
+                "day"
+            )
+        )
+
+        # info on planetary system
+        info = {
+            "star": star.get_info(),
+            "planet": planet.get_info(),
+            "orbit": {
+                "period [days]": _period.to("day").value,
+                "semi_major_axis [AU]": _semimajor_axis.to("AU").value,
+            },
+        }
+
+        return cls(
+            star=star,
+            planet=planet,
+            semimajor_axis=_semimajor_axis,
+            period=_period,
+            irrad_temp=_irrad_temp,
+            info=info,
+        )

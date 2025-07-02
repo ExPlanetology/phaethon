@@ -33,7 +33,6 @@ from phaethon.celestial_objects import (
     PlanetarySystem,
 )
 from phaethon.outgassing import VapourEngine
-from phaethon.pipeline import PhaethonPipeline
 from phaethon.fastchem_coupling import FastChemCoupler, CondensationMode
 
 # Create the package logger.

@@ -37,8 +37,6 @@ import logging
 from phaethon.celestial_objects import (
     Star,
     Planet,
-    CircularOrbitFromSemiMajorAxis,
-    CircularOrbitFromPeriod,
     PlanetarySystem,
 )
 from phaethon.outgassing import VapourEngine

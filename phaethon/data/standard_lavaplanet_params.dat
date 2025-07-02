@@ -96,7 +96,7 @@ coupling mode =                                       no                        
 
 debugging feedback =                             no                         [yes, no]                                                      (CL: Y)
 precision =                                      double                     [double, single]                                               (CL: Y)
-number of layers =                               automatic                  [automatic, number > 0]                                        (CL: Y)
+number of layers =                               38                         [automatic, number > 0]                                        (CL: Y)
 isothermal layers =                              automatic                  [automatic, yes, no]                                           (CL: Y)
 adaptive interval =                              20                         [number]                                                       (CL: Y)
 TP profile smoothing =                           no                         [yes, no]                                                      (CL: Y)

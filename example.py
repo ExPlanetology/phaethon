@@ -15,14 +15,11 @@ from astropy import units
 import pandas as pd
 
 from phaethon import (
-    Star,
-    Planet,
-    CircularOrbitFromPeriod,
-    PlanetarySystem,
     VapourEngine,
     FastChemCoupler,
     debug_file_logger,
 )
+from phaethon.celestial_objects import Planet, Star, PlanetarySystem
 from phaethon.gas_mixture import IdealGasMixture
 from phaethon.pipeline import PhaethonPipeline
 

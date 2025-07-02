@@ -1,0 +1,3 @@
+from phaethon.celestial_objects.planet import Planet
+from phaethon.celestial_objects.star import Star
+from phaethon.celestial_objects.planetary_system import PlanetarySystem

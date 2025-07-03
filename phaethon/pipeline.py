@@ -236,6 +236,10 @@ class PhaethonPipeline:
                 Dictionary containing additional args (e.g., compiler flags) for nvcc, the CUDA
                 compiler. Called when compiling the HELIOS kernels on-the-fly.
         """
+
+        if cuda_kws is None:
+            cuda_kws = {}
+
         # init logger
         logger = file_logger(logfile=self.outdir + logfile_name)
 
@@ -409,6 +413,10 @@ class PhaethonPipeline:
             Additional keywords for CUDA configuration. Needed during reset of the HELIOS
             computation module.
         """
+        
+        if cuda_kws is None:
+            cuda_kws = {}
+
         self._reader = read.Read()
         self._keeper = quant.Store()
         self._computer = comp.Compute(cuda_kws=cuda_kws)

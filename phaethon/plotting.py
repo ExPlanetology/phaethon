@@ -31,6 +31,7 @@ from mpl_toolkits.axes_grid1.inset_locator import (
 from labellines import labelLines
 import cmcrameri
 
+from phaethon.fastchem_coupling import CondensationMode
 from phaethon.analyse import PhaethonResult
 from phaethon.utilities import formula_to_latex
 
@@ -40,12 +41,14 @@ def plot_chem(
     mixrat_limits: list,
     axis=None,
     molec_styles: Optional[dict] = None,
+    cmap: object = cmcrameri.cm.batlowS,
     lw: float = 2,
     legend_kws: Optional[dict] = None,
     use_mpl_log: bool = True,
     pressure_unit: str = "bar",
     use_labellines: bool = True,
     labellines_kwargs: Optional[dict] = None,
+    outname: Optional[str] = None,
 ) -> None:
     """
     Plot mixing ratios as a function of pressure.
@@ -119,8 +122,8 @@ def plot_chem(
                     )
     else:
         legend_handles = []
-        colors = [cmcrameri.cm.batlowS(i) for i in range(len(result.species))]
-        for species, color in zip(result.species, colors):
+        i=0
+        for species in result.species:
             mixing_ratio = result.chem[species].to_numpy()
             if np.any(mixing_ratio >= min(mixrat_limits)):
                 mask = (mixing_ratio >= min(mixrat_limits)) * (
@@ -136,12 +139,14 @@ def plot_chem(
                     np.flip(_mixing_ratio[mask]),
                     np.flip(pressure[mask]),
                     label=formula_to_latex(species),
-                    color=color,
+                    color=cmap(i),
                 )
 
                 legend_handles.append(
-                    Line2D([0], [0], label=formula_to_latex(species), color=color, ls="solid", lw=2)
+                    Line2D([0], [0], label=formula_to_latex(species), color=cmap(i), ls="solid", lw=2)
                 )
+                
+                i += 1
 
     if use_mpl_log:
         ax.loglog()
@@ -219,6 +224,10 @@ def plot_chem(
 
         # Show
         plt.tight_layout()
+
+        if outname is not None:
+            plt.savefig(outname)
+
         plt.show()
 
 
@@ -324,7 +333,7 @@ def plot_tau(
 
 
 def plot_condensation(
-    result: PhaethonResult, cond_mode: Literal["none", "equilibrium", "rainout"]
+    result: PhaethonResult, cond_mode: CondensationMode, outname: Optional[str] = None
 ):
     """
     A postprocessing tool to run condensation along p-T-profile.
@@ -345,7 +354,7 @@ def plot_condensation(
         cond_mode=cond_mode, full_output=False
     )
 
-    fig, ax = plt.subplots(1, 3, figsize=(15, 5), width_ratios=[0.3, 1, 1], sharey=True)
+    fig, ax = plt.subplots(1, 3, width_ratios=[0.5, 1, 1], sharey=True)
 
     # p-T-profile
     ax[0].semilogy(
@@ -362,6 +371,8 @@ def plot_condensation(
         )
     labelLines(ax[1].get_lines())
     ax[1].legend(loc=0, ncols=2)
+    ax[1].set_xlabel("condensation degree")
+    ax[1].semilogx()
 
     # cond species number density
     for cond in cond_number_density.columns:
@@ -372,15 +383,22 @@ def plot_condensation(
                 result.pressure.to("bar").value[mask],
                 label=cond,
             )
-    ax[1].semilogx()
+    ax[2].semilogx()
     # labelLines(ax[2].get_lines())
     ax[2].legend(loc=0)
+    ax[2].set_xlabel("number of molecules")
 
     # only do it once
     ax[0].invert_yaxis()
 
+    fig.suptitle(cond_mode.name)
+
     fig.tight_layout()
     fig.subplots_adjust(wspace=0.1)
+
+    if outname is not None:
+        fig.savefig(outname)
+
     fig.show()
 
 def plot_conddegree_elems(

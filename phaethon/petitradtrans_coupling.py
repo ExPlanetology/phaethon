@@ -96,6 +96,7 @@ class RadtransCoupler:
     wlen_bords_micron: list
     gas_continuum_contributors: list
     rayleigh_species: list
+    additional_outputs: dict
 
     star_spec_fit: Callable
 
@@ -123,6 +124,7 @@ class RadtransCoupler:
         self.gas_continuum_contributors = gas_continuum_contributors
 
         self.radtrans = None
+        self.additional_outputs = {}
 
         # stellar spectrum
         star = PhoenixStarTable()
@@ -181,7 +183,7 @@ class RadtransCoupler:
         )
 
     def calc_planet_flux(
-        self, r_planet: float, reference_gravity: float = 981.0
+        self, r_planet: float, reference_gravity: float = 981.0, calcflux_kws: Optional[Dict[str, float | str]] = None,
     ) -> Union[np.ndarray, np.ndarray]:
         """
         Flux emitted by the planet.
@@ -199,7 +201,7 @@ class RadtransCoupler:
             flux : np.ndarray
                 Flux emitted by the planet.
         """
-        wavl_cm, planet_flux, _ = self.radtrans.calculate_flux(
+        wavl_cm, planet_flux, self.additional_outputs = self.radtrans.calculate_flux(
             temperatures=self.t_profile,
             mass_fractions=self.massfrac_profiles,
             reference_gravity=reference_gravity,
@@ -279,7 +281,7 @@ class RadtransCoupler:
             calcflux_kws = {}
 
         # get emission spectrum of the planet
-        wavl_cm, planet_spectral_emittance, _ = self.radtrans.calculate_flux(
+        wavl_cm, planet_spectral_emittance, self.additional_outputs = self.radtrans.calculate_flux(
             temperatures=self.t_profile,
             mass_fractions=self.massfrac_profiles,
             reference_gravity=(
@@ -361,7 +363,7 @@ class RadtransCoupler:
         grav = self.phaethon_result.planet_params["grav"] * 100 # to cm/s^2
 
         # transmission calculation
-        wavl, transm_rad, _ = self.radtrans.calculate_transit_radii(
+        wavl, transm_rad, self.additional_outputs = self.radtrans.calculate_transit_radii(
             temperatures=self.t_profile,
             mass_fractions=self.massfrac_profiles,
             mean_molar_masses=self.mmw_profile,

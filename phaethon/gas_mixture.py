@@ -147,6 +147,81 @@ class IdealGasMixture:
             mixing_ratios=mixing_ratios,
         )
 
+    @classmethod
+    def new_from_fastchem_inputfile(
+        cls: Type[T],
+        input_file: str,
+        reference_element: str,
+        temperature: Optional[float] = np.nan,
+        volume: Optional[float] = np.nan,
+        total_moles: float = 1.,
+    ) -> None:
+        """
+        Build gas mixture from a FastChem input file.
+
+        Parameters
+        ----------
+            input_file : str
+                Name of the input file.
+            reference_element : str
+                Reference element for normalization.
+
+        Returns
+        -------
+            IdealGas
+                An instance of the IdealGas class.
+        """
+        elem_molfrac = {}
+
+        with open(input_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        for line in lines:
+            if line.startswith('#') or line.startswith('e-'):
+                continue
+            parts = line.split()
+            if len(parts) == 2:
+                elem, log_n = parts
+                log_n = float(log_n)
+                # Convert log_n back to molar ratio
+                xi = 10 ** (log_n - 12.0)
+                elem_molfrac[elem] = xi
+
+        # Normalize the molar fractions
+        if reference_element in elem_molfrac:
+            reference_value = elem_molfrac[reference_element]
+            for elem in elem_molfrac:
+                elem_molfrac[elem] /= reference_value
+        else:
+            raise ValueError(f"Reference element {reference_element} not found in the input file.")
+
+        moles = pd.Series(elem_molfrac) * total_moles
+
+        gas_species_names: List[str] = moles.sort_index().index.to_list()
+
+        # evaluate ideal gas law
+        p_bar = moles * sc.R * temperature / volume
+
+        molfrac = moles / moles.sum()
+        gas_stoich = cls._calc_stoich(gas_species_names)
+        mol_masses = cls._calc_molmasses(gas_species_names)
+        elem_molfrac = cls._calc_elem_molfrac(gas_stoich, moles)
+        mixing_ratios = cls._calc_volume_mixing_ratios(molfrac)
+
+        return cls(
+            gas_species_names=gas_species_names,
+            p_bar=p_bar,
+            log_p=np.log10(p_bar),
+            p_total=p_bar.sum(),
+            moles=moles,
+            gas_stoich=gas_stoich,
+            mol_masses=mol_masses,
+            elem_molfrac=elem_molfrac,
+            molfrac=molfrac,
+            mmw=np.dot(mol_masses, molfrac),
+            mixing_ratios=mixing_ratios,
+        )
+
     def __add__(self, other):
         """
         Add two GasMixtures together.

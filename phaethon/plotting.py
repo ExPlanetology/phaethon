@@ -1,4 +1,4 @@
-# 
+#
 # Copyright 2024-2025 Fabian L. Seidler
 #
 # This file is part of Phaethon.
@@ -20,7 +20,7 @@
 Module with plotting utilities for a Phaethon result.
 """
 
-from typing import Literal, Optional
+from typing import Literal, Optional, Tuple, Union, Dict
 import warnings
 import numpy as np
 import matplotlib.pyplot as plt
@@ -122,7 +122,7 @@ def plot_chem(
                     )
     else:
         legend_handles = []
-        i=0
+        i = 0
         for species in result.species:
             mixing_ratio = result.chem[species].to_numpy()
             if np.any(mixing_ratio >= min(mixrat_limits)):
@@ -143,9 +143,16 @@ def plot_chem(
                 )
 
                 legend_handles.append(
-                    Line2D([0], [0], label=formula_to_latex(species), color=cmap(i), ls="solid", lw=2)
+                    Line2D(
+                        [0],
+                        [0],
+                        label=formula_to_latex(species),
+                        color=cmap(i),
+                        ls="solid",
+                        lw=2,
+                    )
                 )
-                
+
                 i += 1
 
     if use_mpl_log:
@@ -333,7 +340,10 @@ def plot_tau(
 
 
 def plot_condensation(
-    result: PhaethonResult, cond_mode: CondensationMode, outname: Optional[str] = None
+    result: PhaethonResult,
+    cond_mode: CondensationMode,
+    outname: Optional[str] = None,
+    fastchem_kwargs: Optional[dict] = None,
 ):
     """
     A postprocessing tool to run condensation along p-T-profile.
@@ -350,8 +360,11 @@ def plot_condensation(
                 to top of the atmosphere.
     """
 
+    if fastchem_kwargs is None:
+        fastchem_kwargs = {}
+
     element_cond_degree, cond_number_density = result.run_cond(
-        cond_mode=cond_mode, full_output=False
+        cond_mode=cond_mode, full_output=False, **fastchem_kwargs
     )
 
     fig, ax = plt.subplots(1, 3, width_ratios=[0.5, 1, 1], sharey=True)
@@ -401,8 +414,18 @@ def plot_condensation(
 
     fig.show()
 
+
 def plot_conddegree_elems(
-    result: PhaethonResult, cond_mode: Literal["none", "equilibrium", "rainout"], ax: Optional[object] = None,
+    result: PhaethonResult,
+    cond_mode: Literal["none", "equilibrium", "rainout"],
+    ax: Optional[object] = None,
+    elem_colors: Optional[
+        Dict[str, Union[str, Tuple[float, float, float, float]]]
+    ] = None,
+    use_labellines: bool = True,
+    labellines_kwargs: Optional[dict] = None,
+    lines_kwargs: Optional[dict] = None,
+    fastchem_kwargs: Optional[dict] = None,
 ):
     """
     A postprocessing tool to plot condensation degrees of elements.
@@ -419,8 +442,17 @@ def plot_conddegree_elems(
                 to top of the atmosphere.
     """
 
+    if elem_colors is None:
+        lines_kwargs = {}
+    if lines_kwargs is None:
+        lines_kwargs = {}
+    if labellines_kwargs is None:
+        labellines_kwargs = {}
+    if fastchem_kwargs is None:
+        fastchem_kwargs = {}
+
     element_cond_degree, cond_number_density = result.run_cond(
-        cond_mode=cond_mode, full_output=False
+        cond_mode=cond_mode, full_output=False, **fastchem_kwargs
     )
 
     # axis already defined? if not, make new
@@ -431,14 +463,24 @@ def plot_conddegree_elems(
 
     # elemental condensation fraction
     for elem in element_cond_degree.columns:
-        if np.any(element_cond_degree[elem]>0.0):
-            mask = element_cond_degree[elem]>0.0
+        if np.any(element_cond_degree[elem] > 0.0):
+            mask = element_cond_degree[elem] > 0.0
             _ax.plot(
                 np.log10(element_cond_degree[elem][mask]),
                 np.log10(result.pressure.to("bar").value[mask]),
                 label=elem,
+                **lines_kwargs,
+                color=elem_colors.get(elem, None),
             )
-    labelLines(_ax.get_lines())
+
+    # labellines
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if use_labellines:
+            try:
+                labelLines(_ax.get_lines(), **labellines_kwargs)
+            except:
+                pass
 
     if ax is None:
         _ax.invert_yaxis()

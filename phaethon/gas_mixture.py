@@ -55,6 +55,7 @@ class IdealGasMixture:
     moles: pd.Series
     p_total: pd.Series
     molfrac: pd.Series
+    massfrac: pd.Series
     elem_molfrac: pd.Series
     mmw: float
     gas_stoich: pd.DataFrame
@@ -83,6 +84,8 @@ class IdealGasMixture:
         mol_masses = cls._calc_molmasses(gas_species_names)
         elem_molfrac = cls._calc_elem_molfrac(gas_stoich, p_bar) # for ideal gas, moles ~ p_bar
         mixing_ratios = cls._calc_volume_mixing_ratios(molfrac)
+        massfrac = molfrac * mol_masses
+        massfrac /= massfrac.sum()
 
         moles = p_bar * volume / (sc.R * temperature)
 
@@ -96,6 +99,7 @@ class IdealGasMixture:
             mol_masses=mol_masses,
             elem_molfrac=elem_molfrac,
             molfrac=molfrac,
+            massfrac=massfrac,
             mmw=np.dot(mol_masses, molfrac),
             mixing_ratios=mixing_ratios,
         )
@@ -132,6 +136,8 @@ class IdealGasMixture:
         mol_masses = cls._calc_molmasses(gas_species_names)
         elem_molfrac = cls._calc_elem_molfrac(gas_stoich, moles)
         mixing_ratios = cls._calc_volume_mixing_ratios(molfrac)
+        massfrac = molfrac * mol_masses
+        massfrac /= massfrac.sum()
 
         return cls(
             gas_species_names=gas_species_names,
@@ -143,6 +149,7 @@ class IdealGasMixture:
             mol_masses=mol_masses,
             elem_molfrac=elem_molfrac,
             molfrac=molfrac,
+            massfrac=massfrac,
             mmw=np.dot(mol_masses, molfrac),
             mixing_ratios=mixing_ratios,
         )
@@ -207,6 +214,8 @@ class IdealGasMixture:
         mol_masses = cls._calc_molmasses(gas_species_names)
         elem_molfrac = cls._calc_elem_molfrac(gas_stoich, moles)
         mixing_ratios = cls._calc_volume_mixing_ratios(molfrac)
+        massfrac = molfrac * mol_masses
+        massfrac /= massfrac.sum()
 
         return cls(
             gas_species_names=gas_species_names,
@@ -218,6 +227,7 @@ class IdealGasMixture:
             mol_masses=mol_masses,
             elem_molfrac=elem_molfrac,
             molfrac=molfrac,
+            massfrac=massfrac,
             mmw=np.dot(mol_masses, molfrac),
             mixing_ratios=mixing_ratios,
         )

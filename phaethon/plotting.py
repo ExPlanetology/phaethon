@@ -169,7 +169,7 @@ def plot_chem(
     ax.set_ylim(ax.get_ylim()[::-1])
 
     # legend
-    legend = ax_legend.legend(handles=legend_handles, frameon=False, **legend_kws)
+    legend = ax_legend.legend(handles=legend_handles, **legend_kws)
 
     # grid
     ax.grid(True, ls="dotted", color="lightgrey")

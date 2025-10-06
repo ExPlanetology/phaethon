@@ -108,6 +108,8 @@ def plot_chem(
                         np.flip(pressure[mask]),
                         label=molec_styles[species].get("label", species),
                         color=molec_styles[species].get("color", None),
+                        ls=molec_styles[species].get("ls", "solid"),
+                        lw=molec_styles[species].get("lw", lw),
                     )
 
                     legend_handles.append(
@@ -169,7 +171,7 @@ def plot_chem(
     ax.set_ylim(ax.get_ylim()[::-1])
 
     # legend
-    legend = ax_legend.legend(handles=legend_handles, frameon=False, **legend_kws)
+    legend = ax_legend.legend(handles=legend_handles, **legend_kws)
 
     # grid
     ax.grid(True, ls="dotted", color="lightgrey")
@@ -284,8 +286,7 @@ def plot_tau(
         cmap=cmap,
         edgecolor="face",
     )
-    # for c in cs.collections:
-    #     c.set_edgecolor("face")
+    cs.set_edgecolor("face")
     cbaxes = inset_axes(ax, width="30%", height="3%", loc="upper center")
     plt.colorbar(
         cs,

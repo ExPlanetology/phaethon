@@ -57,6 +57,22 @@ def formula_to_latex(formula: str) -> str:
     suffix = None
     if "_" in formula:
         (formula, suffix) = formula.split("_")
+    if formula.endswith("trans"):
+        formula = formula[:-5]
+        suffix = "trans"
+    if formula.endswith("cis"):
+        formula = formula[:-4]
+        suffix = "cis"
+    if "(s)" in formula:
+        (formula, _) = formula.split("(s)")
+        suffix = "s"
+    if "(s,l)" in formula:
+        (formula, _) = formula.split("(s,l)")
+        suffix = "s,l"
+    if "(l)" in formula:
+        (formula, _) = formula.split("(l)")
+        suffix = "l"
+
 
     # extract stoichiometry
     comp: Dict[str, Tuple[float, float, float]] = (
@@ -69,10 +85,10 @@ def formula_to_latex(formula: str) -> str:
         oxy_string += "O"
         oxy_stoich: int = comp.pop("O")[0]
         if oxy_stoich > 1:
-            oxy_string += "_{" + str(oxy_stoich) + "}"
+            oxy_string += "$_{" + str(oxy_stoich) + "}$"
 
     # comp is already sorted in Hill notation
-    latex_formula: str = "$"
+    latex_formula: str = ""
     for elem, data in comp.items():
         stoich: int = data[0]
         if elem == "e-":
@@ -83,11 +99,9 @@ def formula_to_latex(formula: str) -> str:
         else:
             latex_formula += elem
             if stoich > 1:
-                latex_formula += "_{" + str(stoich) + "}"
+                latex_formula += "$_{" + str(stoich) + "}$"
 
     latex_formula += oxy_string
-    latex_formula += "$"
-
 
     if suffix is not None:
         latex_formula += f"({suffix})"

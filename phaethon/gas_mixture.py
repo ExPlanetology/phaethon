@@ -82,7 +82,9 @@ class IdealGasMixture:
         molfrac = p_bar / np.sum(p_bar)
         gas_stoich = cls._calc_stoich(gas_species_names)
         mol_masses = cls._calc_molmasses(gas_species_names)
-        elem_molfrac = cls._calc_elem_molfrac(gas_stoich, p_bar) # for ideal gas, moles ~ p_bar
+        elem_molfrac = cls._calc_elem_molfrac(
+            gas_stoich, p_bar
+        )  # for ideal gas, moles ~ p_bar
         mixing_ratios = cls._calc_volume_mixing_ratios(molfrac)
         massfrac = molfrac * mol_masses
         massfrac /= massfrac.sum()
@@ -161,7 +163,7 @@ class IdealGasMixture:
         reference_element: str,
         temperature: Optional[float] = np.nan,
         volume: Optional[float] = np.nan,
-        total_moles: float = 1.,
+        total_moles: float = 1.0,
     ) -> None:
         """
         Build gas mixture from a FastChem input file.
@@ -180,11 +182,11 @@ class IdealGasMixture:
         """
         elem_molfrac = {}
 
-        with open(input_file, 'r', encoding='utf-8') as f:
+        with open(input_file, "r", encoding="utf-8") as f:
             lines = f.readlines()
 
         for line in lines:
-            if line.startswith('#') or line.startswith('e-'):
+            if line.startswith("#") or line.startswith("e-"):
                 continue
             parts = line.split()
             if len(parts) == 2:
@@ -200,7 +202,9 @@ class IdealGasMixture:
             for elem in elem_molfrac:
                 elem_molfrac[elem] /= reference_value
         else:
-            raise ValueError(f"Reference element {reference_element} not found in the input file.")
+            raise ValueError(
+                f"Reference element {reference_element} not found in the input file."
+            )
 
         moles = pd.Series(elem_molfrac) * total_moles
 
@@ -355,7 +359,7 @@ class IdealGasMixture:
 
         return mixing_ratios
 
-    def to_fastchem(self, outfile: str, reference_element: str) -> None:
+    def to_fastchem(self, outfile: str, ref_elem: str) -> None:
         """
         Write a fastchem input file.
 
@@ -363,21 +367,25 @@ class IdealGasMixture:
         ----------
             outfile : str
                 Name of the output file.
-            reference_element : str
+            ref_elem : str
                 reference element for normalisation
         """
 
-        assert reference_element in self.elem_molfrac.index
+        # reference element ok?
+        error_str: str = (
+            f"reference element `{ref_elem}` not in bulk elemental composition. "
+            + f"Please set `ref_elem` to an available Element. "
+            + f"Available options are: {self.elem_molfrac.index.to_list()}"
+        )
+        assert ref_elem in self.elem_molfrac.index, error_str
 
         # molar ratio of elements to reference element
         xi = self.elem_molfrac.copy()
         for elem in xi.index:
-            if elem == reference_element:
+            if elem == ref_elem:
                 xi[elem] = 1.0
             else:
-                xi[elem] = (
-                    self.elem_molfrac[elem] / self.elem_molfrac[reference_element]
-                )
+                xi[elem] = self.elem_molfrac[elem] / self.elem_molfrac[ref_elem]
 
         # normalize to 10¹² reference element atoms
         log_n = np.log10(xi) + 12.0

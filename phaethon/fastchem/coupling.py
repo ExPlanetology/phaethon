@@ -17,7 +17,7 @@
 # along with Phaethon.  If not, see <https://www.gnu.org/licenses/>.
 #
 """
-Module to couple FastChem 3.0 to phaethon.
+Couple FastChem 3.0 to phaethon.
 """
 
 from importlib import resources
@@ -25,7 +25,7 @@ import tempfile
 import logging
 import os
 from enum import Enum
-from typing import Literal, Tuple, Union, Optional, Dict, List
+from typing import Literal, Tuple, Union, Optional, Dict, List, ContextManager
 import numpy as np
 import pandas as pd
 
@@ -33,7 +33,7 @@ import pandas as pd
 import pyfastchem
 
 from phaethon.gas_mixture import IdealGasMixture
-from phaethon.save_output import (
+from phaethon.fastchem.save_output import (
     saveChemistryOutput,
     saveCondOutput,
     saveMonitorOutput,
@@ -45,9 +45,9 @@ logger = logging.getLogger(__name__)
 #   CONSTANTS
 # ================================================================================================
 
-STANDARD_FASTCHEM_GAS_EQCONST = resources.files("phaethon.data") / "FastChem_logK.dat"
+STANDARD_FASTCHEM_GAS_EQCONST = resources.files("phaethon.fastchem") / "FastChem_logK.dat"
 STANDARD_FASTCHEM_COND_EQCONST = (
-    resources.files("phaethon.data") / "FastChem_logK_condensates.dat"
+    resources.files("phaethon.fastchem") / "FastChem_logK_condensates.dat"
 )
 
 # ================================================================================================
@@ -71,6 +71,41 @@ class CondensationMode(Enum):
 # ================================================================================================
 
 
+class OutputDirectory(ContextManager):
+    """
+    Manage a FastChem output directory.
+
+    FastChem writes temporary files while running, and
+    """
+
+    def __init__(self, real_dir: Optional[os.PathLike] = None) -> None:
+        """
+        Inits the context manager for the FastChem output directory.
+        """
+        self.real_dir = real_dir
+
+    def __enter__(self) -> os.PathLike:
+
+        # If FastChem should write into (or create) an existing directory
+        if self.real_dir is not None:
+            if not os.path.exists(self.real_dir):
+                if isinstance(self.real_dir, str):
+                    if not self.real_dir.endswith("/"):
+                        self.real_dir += "/"
+                os.makedirs(self.real_dir, exist_ok=True)
+            return self.real_dir
+
+        # If FastChem should NOT use real, but temporary directories (on-the-fly runs)
+        else:
+            self.temp_dir = tempfile.mkdtemp()
+            return self.temp_dir
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        # clean-up
+        if not self.real_dir and hasattr(self, "temp_dir"):
+            os.rmdir(self.temp_dir)  # Clean up the temporary directory
+
+
 class FastChemCoupler:
     """
     Provides easy and automated access to FastChem. This class has utilities to create the look-up
@@ -78,14 +113,14 @@ class FastChemCoupler:
     after radiative equilibrium has been achieved.
     """
 
-    #pylint: disable=too-many-arguments
+    # pylint: disable=too-many-arguments
     def __init__(
         self,
+        ref_elem: str,
         *,
         path_to_eqconst: Union[str, os.PathLike] = STANDARD_FASTCHEM_GAS_EQCONST,
         path_to_condconst: Union[str, os.PathLike] = STANDARD_FASTCHEM_COND_EQCONST,
         verbosity_level: Literal[0, 1, 2, 3, 4] = 0,
-        ref_elem: str = "O",
         cond_mode: CondensationMode = CondensationMode.NO_COND,
     ) -> None:
         """
@@ -147,13 +182,15 @@ class FastChemCoupler:
         p_grid, t_grid = np.meshgrid(pressures, temperatures)
         return p_grid.flatten(), t_grid.flatten()
 
+    # pylint: disable=too-many-arguments
     def run_fastchem(
         self,
         vapour: IdealGasMixture,
         pressures: np.ndarray,
         temperatures: np.ndarray,
         *,
-        outdir: str,
+        ref_elem: Optional[str] = None,
+        outdir: Optional[str] = None,
         outfile_name: str = "chem.dat",
         monitor: bool = False,
         cond_mode: Optional[CondensationMode] = None,
@@ -183,96 +220,92 @@ class FastChemCoupler:
             If successful, returns None. Otherwise, returns an error message as a string.
         """
 
-        # pylint: disable=too-many-arguments
+        with OutputDirectory(outdir) as _outdir:
 
-        # is 'outdir' ok?
-        if not outdir.endswith("/"):
-            outdir += "/"
+            # pass chemistry to fastchem; places a FastChem input file in outdir; needs a reference
+            # element to scale the abundances
+            vapour.to_fastchem(
+                outfile=_outdir + "input_chem.dat",
+                ref_elem=ref_elem if ref_elem is not None else self.ref_elem,
+            )
 
-        if not os.path.isdir(outdir):
-            os.makedirs(outdir, exist_ok=True)
+            # create a FastChem object
+            fastchem = pyfastchem.FastChem(
+                _outdir + "input_chem.dat",
+                str(self.path_to_eqconst),
+                str(self.path_to_condconst),
+                self.verbosity_level,
+            )
 
-        # pass chemistry to fastchem; places a FastChem input file in outdir; needs a reference
-        # element to scale the abundances
-        vapour.to_fastchem(
-            outfile=outdir + "input_chem.dat", reference_element=self.ref_elem
-        )
+            # create the input and output structures for FastChem
+            input_data = pyfastchem.FastChemInput()
+            output_data = pyfastchem.FastChemOutput()
 
-        # create a FastChem object
-        fastchem = pyfastchem.FastChem(
-            outdir + "input_chem.dat",
-            str(self.path_to_eqconst),
-            str(self.path_to_condconst),
-            self.verbosity_level,
-        )
+            input_data.temperature = temperatures
+            input_data.pressure = pressures
 
-        # create the input and output structures for FastChem
-        input_data = pyfastchem.FastChemInput()
-        output_data = pyfastchem.FastChemOutput()
+            # condensation mode
+            if cond_mode is None:
+                cond_mode = self.cond_mode
 
-        input_data.temperature = temperatures
-        input_data.pressure = pressures
+            if not isinstance(cond_mode, CondensationMode):
+                raise TypeError(
+                    "'cond_mode' must be of type 'phaethon.CondensationMode'!"
+                )
 
-        # condensation mode
-        if cond_mode is None:
-            cond_mode = self.cond_mode
+            match cond_mode:
+                case CondensationMode.NO_COND:
+                    input_data.equilibrium_condensation = False
+                    input_data.rainout_condensation = False
+                case CondensationMode.EQ_COND:
+                    input_data.equilibrium_condensation = True
+                    input_data.rainout_condensation = False
+                case CondensationMode.RAINOUT:
+                    input_data.equilibrium_condensation = False
+                    input_data.rainout_condensation = True
 
-        if not isinstance(cond_mode, CondensationMode):
-            raise TypeError("'cond_mode' must be of type 'phaethon.CondensationMode'!")
+            # run FastChem on the entire P-T structure
+            fastchem.calcDensities(input_data, output_data)
 
-        match cond_mode:
-            case CondensationMode.NO_COND:
-                input_data.equilibrium_condensation = False
-                input_data.rainout_condensation = False
-            case CondensationMode.EQ_COND:
-                input_data.equilibrium_condensation = True
-                input_data.rainout_condensation = False
-            case CondensationMode.RAINOUT:
-                input_data.equilibrium_condensation = False
-                input_data.rainout_condensation = True
+            # save the monitor output to a file
+            if monitor:
+                saveMonitorOutput(
+                    _outdir + "monitor.dat",
+                    temperatures,
+                    pressures,
+                    output_data.element_conserved,
+                    output_data.fastchem_flag,
+                    output_data.nb_chemistry_iterations,
+                    output_data.total_element_density,
+                    output_data.mean_molecular_weight,
+                    fastchem,
+                )
 
-        # run FastChem on the entire P-T structure
-        fastchem.calcDensities(input_data, output_data)
-
-        # save the monitor output to a file
-        if monitor:
-            saveMonitorOutput(
-                outdir + "monitor.dat",
+            # save gas speciation file
+            saveChemistryOutput(
+                _outdir + outfile_name,
                 temperatures,
                 pressures,
-                output_data.element_conserved,
-                output_data.fastchem_flag,
-                output_data.nb_chemistry_iterations,
                 output_data.total_element_density,
                 output_data.mean_molecular_weight,
+                output_data.number_densities,
                 fastchem,
             )
 
-        # save gas speciation file
-        saveChemistryOutput(
-            outdir + outfile_name,
-            temperatures,
-            pressures,
-            output_data.total_element_density,
-            output_data.mean_molecular_weight,
-            output_data.number_densities,
-            fastchem,
-        )
+            # save condensation file
+            saveCondOutput(
+                _outdir + "cond_" + outfile_name,
+                temperatures,
+                pressures,
+                output_data.element_cond_degree,
+                output_data.number_densities_cond,
+                fastchem,
+                output_species=None,
+                additional_columns=None,
+                additional_columns_desc=None,
+            )
 
-        # save condensation file
-        saveCondOutput(
-            outdir + "cond_" + outfile_name,
-            temperatures,
-            pressures,
-            output_data.element_cond_degree,
-            output_data.number_densities_cond,
-            fastchem,
-            output_species=None,
-            additional_columns=None,
-            additional_columns_desc=None,
-        )
-
-        return fastchem, output_data
+            return fastchem, output_data
 
     def pointcalc(
         self,
@@ -306,7 +339,7 @@ class FastChemCoupler:
             # element to scale the abundances
             starting_gas.to_fastchem(
                 outfile=tmpdir + "input_chem.dat",
-                reference_element=ref_elem if ref_elem is not None else self.ref_elem,
+                ref_elem=ref_elem if ref_elem is not None else self.ref_elem,
             )
 
             # create a FastChem object

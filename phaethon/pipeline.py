@@ -47,7 +47,7 @@ from helios import write
 
 # ----- PHAETHON imports -----#
 from phaethon.celestial_objects import PlanetarySystem
-from phaethon.fastchem_coupling import FastChemCoupler
+from phaethon.fastchem.coupling import FastChemCoupler
 from phaethon.gas_mixture import IdealGasMixture
 from phaethon.outgassing import VapourEngine
 from phaethon.root_finder import PhaethonRootFinder, PhaethonConvergenceError
@@ -278,6 +278,82 @@ class PhaethonPipeline:
 
             # solve
             self._root_finder.solve()
+
+            # store output and metadata
+            self._write_helios_output()
+            self.info_dump()
+
+            # final fastchem run, generate atmospheric abundance profiles
+            self._final_fastchem_run()
+
+            end: float = time.time()
+            logger.info(f"Finished. Duration: {(end - start) / 60.} min")
+
+        # log error, just in case
+        except Exception as e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback_details = traceback.format_exception(
+                exc_type, exc_value, exc_traceback
+            )
+            logger.error("".join(traceback_details))
+            raise Exception(
+                f'An error occured: "{exc_value}". For more information, consult the '
+                + f"logfile at {self.outdir + logfile_name}"
+            )
+
+        # clear cached helios data, because they can occupy large amounts of memory
+        finally:
+            logger.info(f"HELIOS memory wiped")
+            self._wipe_helios_memory(cuda_kws=cuda_kws)
+
+    def single_run(
+        self,
+        t_melt_init: Optional[float] = None,
+        param_file: str = DEFAULT_PARAM_FILE,  # TODO: implement correct path type in type hint!
+        cuda_kws: Optional[dict] = None,
+        logfile_name: str = "phaethon.log",
+    ) -> None:
+        """
+        Runs a single forward cycle, vapour -> fastchem -> HELIOS
+
+        Parameters
+        ----------
+            param_file : str
+                File containing the HELIOS parameters.
+            cuda_kws : dict
+                Dictionary containing additional args (e.g., compiler flags) for nvcc, the CUDA
+                compiler. Called when compiling the HELIOS kernels on-the-fly.
+        """
+
+        if cuda_kws is None:
+            cuda_kws = {}
+
+        # init logger
+        logger = file_logger(logfile=self.outdir + logfile_name)
+
+        # Write an initial metadata file
+        self.info_dump()
+
+        # Generate the file which lists opacity & scattering species; req. by HELIOS
+        self._write_opacspecies_file()
+
+        # initialise HELIOS
+        self._helios_setup(param_file=param_file, cuda_kws=cuda_kws)
+
+        # Inital temperature of the melt, based on the irradiation temperature or constant input
+        self.t_melt = (
+            self.planetary_system.irrad_temp.to("K").value
+            if t_melt_init is None
+            else t_melt_init
+        )
+        assert self.t_melt > 0, Exception("self.t_melt must be > 0")
+
+        # run the loop
+        start: float = time.time()
+        logger.info(f"Starting temperature (melt): {self.t_melt} K")
+
+        try:
+            self._single_forward_iteration(t_melt=self.t_melt)
 
             # store output and metadata
             self._write_helios_output()

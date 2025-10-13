@@ -42,6 +42,7 @@ from phaethon.celestial_objects import (
 from phaethon.outgassing import VapourEngine
 from phaethon.fastchem import FastChemCoupler, CondensationMode
 from phaethon.gas_mixture import IdealGasMixture
+from phaethon.analyse import PhaethonResult
 
 # Create the package logger.
 # https://docs.python.org/3/howto/logging.html#library-config

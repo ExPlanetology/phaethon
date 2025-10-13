@@ -38,7 +38,7 @@ from astropy import units
 from astropy.units.core import Unit as AstropyUnit
 from astropy.units.quantity import Quantity as AstropyQuantity
 
-from phaethon.fastchem_coupling import FastChemCoupler, CondensationMode
+from phaethon.fastchem.coupling import FastChemCoupler, CondensationMode
 
 logger = logging.getLogger(__name__)
 

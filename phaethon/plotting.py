@@ -31,7 +31,7 @@ from mpl_toolkits.axes_grid1.inset_locator import (
 from labellines import labelLines
 import cmcrameri
 
-from phaethon.fastchem_coupling import CondensationMode
+from phaethon.fastchem.coupling import CondensationMode
 from phaethon.analyse import PhaethonResult
 from phaethon.utilities import formula_to_latex
 

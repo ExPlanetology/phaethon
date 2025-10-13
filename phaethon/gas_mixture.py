@@ -35,6 +35,23 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
+def sanitise_formula(formula: str) -> str:
+    """
+    FastChem names might include additons like "cis", "trans", "_cnn" etc., which must be
+    sanitised before passing them to molmass.Formula
+    """
+    if "_" in formula:
+        # removes both "_cnn" and other suffixes
+        return formula.split("_")[0]
+    elif formula.endswith("trans"):
+        return formula.removesuffix("trans")
+    elif formula.endswith("cis"):
+        return formula.removesuffix("cis")
+    else:
+        # raise ValueError(f"Formula '{formula}' could not be parsed.")
+        return formula
+
+
 @dataclass(frozen=True)
 class IdealGasMixture:
     """
@@ -277,7 +294,10 @@ class IdealGasMixture:
                 species_stoich = pd.Series({"e-": 1.0})
             else:
                 species_stoich = pd.Series(
-                    Formula(species_formula).composition().dataframe().Count.to_dict()
+                    Formula(sanitise_formula(species_formula))
+                    .composition()
+                    .dataframe()
+                    .Count.to_dict()
                 )
             gas_stoich = pd.concat([gas_stoich, species_stoich], axis=1)
 
@@ -308,7 +328,7 @@ class IdealGasMixture:
             if species_formula == "e-":
                 mol_masses = mol_masses | {species_formula: 5.48579909e-4}
             else:
-                species_molmass = Formula(species_formula).mass
+                species_molmass = Formula(sanitise_formula(species_formula)).mass
                 mol_masses = mol_masses | {species_formula: species_molmass}
 
         return pd.Series(mol_masses)
@@ -363,6 +383,10 @@ class IdealGasMixture:
         """
         Write a fastchem input file.
 
+        If electrons are present in the input gas, they are only written if their abundance is 
+        positive. Reason: sometimes, calculations give negative and very small amounts of electrons
+        that should be zero.
+
         Parameters
         ----------
             outfile : str
@@ -387,14 +411,23 @@ class IdealGasMixture:
             else:
                 xi[elem] = self.elem_molfrac[elem] / self.elem_molfrac[ref_elem]
 
-        # normalize to 10¹² reference element atoms
+        # normalize to 10¹² reference element atomsrg 
         log_n = np.log10(xi) + 12.0
 
         # write file
         with open(outfile, "w", encoding="utf-8") as f:
             f.write("# This is the header\n")
-            f.write("e-    0.0\n")
-            for elem in self.elem_molfrac.index:
+            if "e-" in self.elem_molfrac.index:
+                elem_molfrac = self.elem_molfrac.drop("e-")
+                if self.elem_molfrac["e-"] > 0:
+                    value = log_n["e-"]
+                    f.write("e-    " + str(value) + "\n")
+                else:
+                    f.write("e-    0.0\n")
+            else:
+                elem_molfrac = self.elem_molfrac
+                f.write("e-    0.0\n")
+            for elem in elem_molfrac.index:
                 if elem in log_n:
                     value = log_n[elem]
                 else:

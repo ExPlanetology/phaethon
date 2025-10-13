@@ -160,11 +160,8 @@ C1H1F1O1 Formyl_Fluoride : C 1 H 1 F 1 O 1 # Chase, M. et al., JANAF thermochemi
 C1H1F3 Trifluoromethane : C 1 H 1 F 3 # Chase, M. et al., JANAF thermochemical tables, 1998.
    2.2368929203016960e+05  -5.6226861606049852e+00  -2.3263454751261634e+01   2.0487307565586477e-03  -1.1240010497630916e-07 
 
-C1H1N1_1 Hydrogen_Cyanide_HCN : C 1 H 1 N 1 # Chase, M. et al., JANAF thermochemical tables, 1998.
+C1H1N1 Hydrogen_Cyanide_HCN : C 1 H 1 N 1 # Chase, M. et al., JANAF thermochemical tables, 1998.
    1.5220770936532610e+05  -3.2044022899036122e+00  -6.2670328370286370e+00   9.8433301098929671e-04  -5.1782570298829157e-08 
-
-C1H1N1_2 Hydrogen_Isocyanide_HNC : C 1 H 1 N 1 # Goos et al., Extended Third Millenium Ideal Gas Thermochemical Database [...] , 2018.
-   1.453839706728254e+05   -2.938196985615019e+00   -7.380414445068316e+00    8.66421612553809e-04    -4.695937733428566e-08
 
 C1H1N1O1 Hydrogen_Isocyanate : C 1 H 1 N 1 O 1 # Chase, M. et al., JANAF thermochemical tables, 1998.
    2.1042476147610892e+05  -4.3028500847829605e+00  -1.4292989030241188e+01   1.3304443197154070e-03  -7.2481719280098562e-08 

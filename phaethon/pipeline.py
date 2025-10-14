@@ -219,7 +219,7 @@ class PhaethonPipeline:
         t_abstol: float = 35.0,
         t_melt_init: Optional[float] = None,
         param_file: str = DEFAULT_PARAM_FILE,  # TODO: implement correct path type in type hint!
-        cuda_kws: Optional[dict] = None,
+        nvcc_kws: Optional[dict] = None,
         logfile_name: str = "phaethon.log",
     ) -> None:
         """
@@ -232,13 +232,13 @@ class PhaethonPipeline:
                 ΔT allowed between t_melt and t_boa, in K.
             param_file : str
                 File containing the HELIOS parameters.
-            cuda_kws : dict
+            nvcc_kws : dict
                 Dictionary containing additional args (e.g., compiler flags) for nvcc, the CUDA
                 compiler. Called when compiling the HELIOS kernels on-the-fly.
         """
 
-        if cuda_kws is None:
-            cuda_kws = {}
+        if nvcc_kws is None:
+            nvcc_kws = {}
 
         # init logger
         logger = file_logger(logfile=self.outdir + logfile_name)
@@ -250,7 +250,7 @@ class PhaethonPipeline:
         self._write_opacspecies_file()
 
         # initialise HELIOS
-        self._helios_setup(param_file=param_file, cuda_kws=cuda_kws)
+        self._helios_setup(param_file=param_file, nvcc_kws=nvcc_kws)
 
         # Inital temperature of the melt, based on the irradiation temperature or constant input
         self.t_melt = (
@@ -304,13 +304,13 @@ class PhaethonPipeline:
         # clear cached helios data, because they can occupy large amounts of memory
         finally:
             logger.info(f"HELIOS memory wiped")
-            self._wipe_helios_memory(cuda_kws=cuda_kws)
+            self._wipe_helios_memory(nvcc_kws=nvcc_kws)
 
     def single_run(
         self,
         t_melt_init: Optional[float] = None,
         param_file: str = DEFAULT_PARAM_FILE,  # TODO: implement correct path type in type hint!
-        cuda_kws: Optional[dict] = None,
+        nvcc_kws: Optional[dict] = None,
         logfile_name: str = "phaethon.log",
     ) -> None:
         """
@@ -320,13 +320,13 @@ class PhaethonPipeline:
         ----------
             param_file : str
                 File containing the HELIOS parameters.
-            cuda_kws : dict
+            nvcc_kws : dict
                 Dictionary containing additional args (e.g., compiler flags) for nvcc, the CUDA
                 compiler. Called when compiling the HELIOS kernels on-the-fly.
         """
 
-        if cuda_kws is None:
-            cuda_kws = {}
+        if nvcc_kws is None:
+            nvcc_kws = {}
 
         # init logger
         logger = file_logger(logfile=self.outdir + logfile_name)
@@ -338,7 +338,7 @@ class PhaethonPipeline:
         self._write_opacspecies_file()
 
         # initialise HELIOS
-        self._helios_setup(param_file=param_file, cuda_kws=cuda_kws)
+        self._helios_setup(param_file=param_file, nvcc_kws=nvcc_kws)
 
         # Inital temperature of the melt, based on the irradiation temperature or constant input
         self.t_melt = (
@@ -380,7 +380,7 @@ class PhaethonPipeline:
         # clear cached helios data, because they can occupy large amounts of memory
         finally:
             logger.info(f"HELIOS memory wiped")
-            self._wipe_helios_memory(cuda_kws=cuda_kws)
+            self._wipe_helios_memory(nvcc_kws=nvcc_kws)
 
     # ============================================================================================
     # SEMI-PRIVATE METHODS
@@ -478,24 +478,24 @@ class PhaethonPipeline:
 
                 species_dat.write(outstr)
 
-    def _wipe_helios_memory(self, cuda_kws: Dict[str, str]) -> None:
+    def _wipe_helios_memory(self, nvcc_kws: Dict[str, str]) -> None:
         """
         Clears the cached data from HELIOS in order to free memory; is called at the end of the
         pipeline. Otherwise, HELIOS might crash after subsequent calls to the pipeline.
 
         Parameters
         ----------
-        cuda_kws : dict, optional
+        nvcc_kws : dict, optional
             Additional keywords for CUDA configuration. Needed during reset of the HELIOS
             computation module.
         """
         
-        if cuda_kws is None:
-            cuda_kws = {}
+        if nvcc_kws is None:
+            nvcc_kws = {}
 
         self._reader = read.Read()
         self._keeper = quant.Store()
-        self._computer = comp.Compute(cuda_kws=cuda_kws)
+        self._computer = comp.Compute(nvcc_kws=nvcc_kws)
         self._writer = write.Write()
         self._plotter = rt_plot.Plot()
         self._fogger = clouds.Cloud()
@@ -504,7 +504,7 @@ class PhaethonPipeline:
         self,
         param_file: str,
         run_type: Literal["iterative", "post-processing"] = "iterative",
-        cuda_kws: dict = None,
+        nvcc_kws: dict = None,
     ) -> None:
         """
         Sets up the HELIOS model parameters and reads the necessary input files.
@@ -516,17 +516,17 @@ class PhaethonPipeline:
         run_type : str, optional
             The type of run to perform. Can be 'iterative' or 'post-processing'. Default is
             'iterative'.
-        cuda_kws : dict, optional
+        nvcc_kws : dict, optional
             Additional keywords for CUDA configuration.
         """
 
-        if cuda_kws is None:
-            cuda_kws = {}
+        if nvcc_kws is None:
+            nvcc_kws = {}
 
         # Initialize components as instance attributes
         self._reader = read.Read()
         self._keeper = quant.Store()
-        self._computer = comp.Compute(cuda_kws=cuda_kws)
+        self._computer = comp.Compute(nvcc_kws=nvcc_kws)
         self._writer = write.Write()
         self._plotter = rt_plot.Plot()
         self._fogger = clouds.Cloud()

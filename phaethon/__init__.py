@@ -39,7 +39,7 @@ from phaethon.celestial_objects import (
     Planet,
     PlanetarySystem,
 )
-from phaethon.outgassing import VapourEngine
+from phaethon.interfaces import OutgassingProtocol
 from phaethon.fastchem import FastChemCoupler, CondensationMode
 from phaethon.gas_mixture import IdealGasMixture
 from phaethon.analyse import PhaethonResult

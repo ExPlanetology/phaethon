@@ -49,23 +49,15 @@ from helios import write
 from phaethon.celestial_objects import PlanetarySystem
 from phaethon.fastchem.coupling import FastChemCoupler
 from phaethon.gas_mixture import IdealGasMixture
-from phaethon.outgassing import VapourEngine
+from phaethon.interfaces import OutgassingProtocol
 from phaethon.root_finder import PhaethonRootFinder, PhaethonConvergenceError
 from phaethon.logger import file_logger
 
 
-# ================================================================================================
-#   CONSTANTS
-# ================================================================================================
-
 DEFAULT_PARAM_FILE = (
     importlib.resources.files("phaethon.data") / "standard_lavaplanet_params.dat"
 )
-
-# ================================================================================================
-#   CLASSES
-# ================================================================================================
-
+""" Default HELIOS parameters, suitable for lava planets. """
 
 class PhaethonPipeline:
     """
@@ -73,7 +65,7 @@ class PhaethonPipeline:
     """
 
     planetary_system: PlanetarySystem
-    vapour_engine: VapourEngine
+    outgassing: OutgassingProtocol
     fastchem_coupler: FastChemCoupler
 
     opacity_path: str
@@ -100,7 +92,7 @@ class PhaethonPipeline:
     def __init__(
         self,
         planetary_system: PlanetarySystem,
-        vapour_engine: VapourEngine,
+        outgassing: OutgassingProtocol,
         fastchem_coupler: FastChemCoupler,
         outdir: str,
         opac_species: set,
@@ -122,7 +114,7 @@ class PhaethonPipeline:
         ----------
         planetary_system : PlanetarySystem
             The planetary system to be modeled.
-        vapour_engine : VapourEngine
+        outgassing : OutgassingProtocol
             The engine responsible for handling vaporization/outgassing processes.
         outdir : str
             The directory where output files will be stored.
@@ -150,7 +142,7 @@ class PhaethonPipeline:
         self.outdir = outdir
 
         self.planetary_system = planetary_system
-        self.vapour_engine = vapour_engine
+        self.outgassing = outgassing
         self.fastchem_coupler = fastchem_coupler
         self.opacity_path = opacity_path
         self.opac_species = opac_species
@@ -181,13 +173,13 @@ class PhaethonPipeline:
         metadata: Dict[str, Union[float, str, int]] = self.planetary_system.info
 
         # info on outgassing routine
-        vapour_engine_dict = {
-            "vapour_engine": {
-                "type": str(type(self.vapour_engine)),
-                "report": self.vapour_engine.get_info(),
+        outgassing_dict = {
+            "outgassing": {
+                "type": str(type(self.outgassing)),
+                "report": self.outgassing.get_info(),
             }
         }
-        metadata.update(vapour_engine_dict)
+        metadata.update(outgassing_dict)
 
         # info on atmospheric parameters
         atmo_dict = {
@@ -216,25 +208,30 @@ class PhaethonPipeline:
 
     def run(
         self,
-        t_abstol: float = 35.0,
+        param_file: os.PathLike = DEFAULT_PARAM_FILE,
+        *,
+        t_abstol: float = 10.0,
         t_melt_init: Optional[float] = None,
-        param_file: str = DEFAULT_PARAM_FILE,  # TODO: implement correct path type in type hint!
         nvcc_kws: Optional[dict] = None,
         logfile_name: str = "phaethon.log",
     ) -> None:
         """
-        Equilibrates an atmosphere with the underlying (magma) ocean and solves the
-        radiative transfer problem.
+        Equilibrates an atmosphere with the underlying (magma) ocean and solves the radiative
+        transfer problem.
 
         Parameters
         ----------
-            t_abstol : float
-                ΔT allowed between t_melt and t_boa, in K.
-            param_file : str
+            param_file : os.PathLike
                 File containing the HELIOS parameters.
-            nvcc_kws : dict
+            t_abstol : float (optional)
+                ΔT allowed between t_melt and t_boa, in K.
+            t_melt_init : Optional[float] (optional)
+                Optional starting temperature of the melt, in K.
+            nvcc_kws : dict  (optional)
                 Dictionary containing additional args (e.g., compiler flags) for nvcc, the CUDA
-                compiler. Called when compiling the HELIOS kernels on-the-fly.
+                compiler.
+            logfile_name : str (optional)
+                Name of the logfile, placed in the output directory. Default is "phaethon.log".
         """
 
         if nvcc_kws is None:
@@ -308,21 +305,26 @@ class PhaethonPipeline:
 
     def single_run(
         self,
+        param_file: os.PathLike = DEFAULT_PARAM_FILE,
+        *,
         t_melt_init: Optional[float] = None,
-        param_file: str = DEFAULT_PARAM_FILE,  # TODO: implement correct path type in type hint!
         nvcc_kws: Optional[dict] = None,
         logfile_name: str = "phaethon.log",
     ) -> None:
         """
-        Runs a single forward cycle, vapour -> fastchem -> HELIOS
+        Runs a single forward cycle, outgassing -> fastchem -> HELIOS.
 
         Parameters
         ----------
-            param_file : str
+            param_file : os.PathLike
                 File containing the HELIOS parameters.
-            nvcc_kws : dict
+            t_melt_init : Optional[float] (optional)
+                Optional starting temperature of the melt, in K.
+            nvcc_kws : dict  (optional)
                 Dictionary containing additional args (e.g., compiler flags) for nvcc, the CUDA
-                compiler. Called when compiling the HELIOS kernels on-the-fly.
+                compiler.
+            logfile_name : str (optional)
+                Name of the logfile, placed in the output directory. Default is "phaethon.log".
         """
 
         if nvcc_kws is None:
@@ -388,21 +390,16 @@ class PhaethonPipeline:
 
     def _single_forward_iteration(self, t_melt: float) -> None:
         """
-        Performs a single forward iteration: vapour -> fastchem -> helios
+        Performs a single forward iteration: outgassing -> fastchem -> helios
 
         Parameters
         ----------
             t_melt : float
                 Melt temperature, in K.
-        Returns
-        -------
-            delta_t : float
-                ΔT := |T_melt - T_boa|, difference between resulting melt temperature and
-                bottom-of-atmosphere (BOA) temperature.
         """
 
         # equilibriate atmosphere-melt interface, compute atmosphere compositon
-        self.atmo = self.vapour_engine.equilibriate_vapour(temperature=t_melt)
+        self.atmo = self.outgassing.equilibriate_vapour(temperature=t_melt)
         self.p_boa = self.atmo.p_total  # bar
 
         # check result of outgassing

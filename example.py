@@ -1,10 +1,5 @@
 """
-A schematic implementation of how phaethon is supposed to work. Due to the absence of a FOSS
-license for MAGMA, we cannot share the modified code used in our Study, Seidler et al. 2024.
-Hence, this code will not work.
-
-If you desire to run the script, please obtain a copy of the MAGMA code and modify it according
-to Seidler et al. 2024.
+Phaethon minimum working example.
 """
 
 import os
@@ -13,34 +8,43 @@ from typing import Callable, Dict
 from scipy.interpolate import interp1d
 from astropy import units
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from phaethon import (
-    VapourEngine,
+    OutgassingProtocol,
     FastChemCoupler,
     debug_file_logger,
+    IdealGasMixture,
+    Planet,
+    Star,
+    PlanetarySystem
 )
-from phaethon.celestial_objects import Planet, Star, PlanetarySystem
-from phaethon.gas_mixture import IdealGasMixture
 from phaethon.pipeline import PhaethonPipeline
+from phaethon.analyse import PhaethonResult
+from phaethon.plotting import plot_chem
 
 logger = debug_file_logger()
 
 OPACITY_PATH: str = os.environ.get("OPAC_PATH")
 
 
-class VapourEngineExample(VapourEngine):
-    """A simple example to an outgassing routine. Only valid for a fixed oxygen fugacity, but
-    allows for variable temperature (as it must, because the oxidation state of the melt is usually
-    held constant during a simualtion while the temperature of the atmosphere-melt interface
-    changes).
+class OutgassingExample(OutgassingProtocol):
+    """
+    A simple example to an outgassing routine, having only temperature dependence. Oxygen fugacity
+    is fixed, as the oxidation state of the melt is usually held constant during a simulation while 
+    the temperature of the atmosphere-melt interface changes. Here, ΔIW=-4.
+
+    The reported vapour pressures are fits to pre-computed trends from Seidler et al. 2024
     """
 
     _df: pd.DataFrame
     """ Frame holding the log of partial pressures of species as function of temperature. """
 
     _logp_fits: Dict[str, Callable]
-    """ Dicitonary holding `scipy.interpolate.interp1d` instances that relate temperature <-> 
-    outgassing pressure. """
+    """ 
+    Dicitonary holding `scipy.interpolate.interp1d` instances that relate temperature <-> 
+    outgassing pressure. 
+    """
 
     vapour: IdealGasMixture
     """ Object holding the properties of the vapour. """
@@ -59,13 +63,9 @@ class VapourEngineExample(VapourEngine):
         """Returns information on state of the outgassing routine."""
         return {"dIW": -4.0, "composition_name": "TERRA"}
 
-    def set_extra_params(self, params: dict) -> None:
-        """No extra parameters to set"""
-        pass
-
     def equilibriate_vapour(self, temperature: float) -> IdealGasMixture:
         """
-        Reports the vapour composition as function of temperature.
+        Reports the vapour composition as function of temperature. Fixed ΔIW=-4.
 
         Params
         ------
@@ -110,8 +110,8 @@ if __name__ == "__main__":
 
     planet = Planet(
         name="55 Cnc e",
-        mass=1.0 * units.M_earth,
-        radius=1.0 * units.R_earth,
+        mass=8.0 * units.M_earth,
+        radius=1.88 * units.R_earth,
         bond_albedo=0.0,
         dilution_factor=2.0 / 3.0,
         internal_temperature=0 * units.K,
@@ -119,18 +119,33 @@ if __name__ == "__main__":
 
     # build a planet with fixed irradiation temperature, semi-major axis is automatically adjusted
     planetary_system = PlanetarySystem.build_from_irrad_temp(
-        irrad_temp=2500, planet=planet, star=star
+        irrad_temp=2500 * units.K, planet=planet, star=star
     )
 
+    # init the pipeline
     pipeline = PhaethonPipeline(
         planetary_system=planetary_system,
-        vapour_engine=VapourEngineExample(),
-        fastchem_coupler=FastChemCoupler(),
+        outgassing=OutgassingExample(),
+        fastchem_coupler=FastChemCoupler(ref_elem="O"),
         outdir="output/test/",
         opac_species={"SiO"},
         scatterers={},
         opacity_path=OPACITY_PATH,
     )
 
-    # You might need to adept the architecutre to your system.
-    pipeline.run(cuda_kws={"arch": "sm_86"}, t_abstol=35)
+    # You need to adept the architecutre to your system, see README
+    pipeline.run(nvcc_kws={"arch": "sm_89"}, t_abstol=35)
+
+    # load results from run
+    result = PhaethonResult("output/test/")
+
+    # plot PT-profile
+    plt.plot(result.temperature, result.pressure)
+    plt.gca().invert_yaxis()
+    plt.semilogy()
+    plt.xlabel("Temperature [K]")
+    plt.ylabel("Pressure [bar]")
+    plt.show()
+
+    # plot atmospheric chemistry / mixing ratios
+    plot_chem(result, mixrat_limits=[1e-6, 1.1])

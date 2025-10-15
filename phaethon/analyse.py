@@ -65,7 +65,7 @@ class PhaethonResult:
     planet_params: dict = field(init=False)
     star_params: dict = field(init=False)
     orbit_params: dict = field(init=False)
-    vapour_engine_params: dict = field(init=False)
+    outgassing_params: dict = field(init=False)
 
     # atmo structure
     temperature: ArrayLike = field(init=False)
@@ -196,7 +196,7 @@ class PhaethonResult:
         self.planet_params = params[r"planet"]
         self.star_params = params[r"star"]
         self.orbit_params = params[r"orbit"]
-        self.vapour_engine_params = params[r"vapour_engine"]
+        self.outgassing_params = params[r"outgassing"]
 
         # ----------- stellar spectrum ------------#
         self.spectral_exitance_star = None

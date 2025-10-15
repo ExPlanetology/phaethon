@@ -44,5 +44,5 @@ class OutgassingProtocol(Protocol):
         """Information and params on the particular vapour engine"""
 
     @abstractmethod
-    def equilibriate_vapour(self, temperature: float) -> IdealGasMixture:
+    def equilibriate(self, temperature: float) -> IdealGasMixture:
         """Equilibrate chemistry at the magma-ocean atmosphere interface"""

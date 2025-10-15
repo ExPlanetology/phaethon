@@ -63,7 +63,7 @@ class OutgassingExample(OutgassingProtocol):
         """Returns information on state of the outgassing routine."""
         return {"dIW": -4.0, "composition_name": "TERRA"}
 
-    def equilibriate_vapour(self, temperature: float) -> IdealGasMixture:
+    def equilibriate(self, temperature: float) -> IdealGasMixture:
         """
         Reports the vapour composition as function of temperature. Fixed ΔIW=-4.
 

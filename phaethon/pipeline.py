@@ -399,7 +399,7 @@ class PhaethonPipeline:
         """
 
         # equilibriate atmosphere-melt interface, compute atmosphere compositon
-        self.atmo = self.outgassing.equilibriate_vapour(temperature=t_melt)
+        self.atmo = self.outgassing.equilibriate(temperature=t_melt)
         self.p_boa = self.atmo.p_total  # bar
 
         # check result of outgassing

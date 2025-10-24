@@ -305,9 +305,9 @@ class PhaethonPipeline:
 
     def single_run(
         self,
-        param_file: os.PathLike = DEFAULT_PARAM_FILE,
         *,
-        t_melt_init: Optional[float] = None,
+        param_file: os.PathLike = DEFAULT_PARAM_FILE,
+        t_melt: float,
         nvcc_kws: Optional[dict] = None,
         logfile_name: str = "phaethon.log",
     ) -> None:
@@ -343,11 +343,7 @@ class PhaethonPipeline:
         self._helios_setup(param_file=param_file, nvcc_kws=nvcc_kws)
 
         # Inital temperature of the melt, based on the irradiation temperature or constant input
-        self.t_melt = (
-            self.planetary_system.irrad_temp.to("K").value
-            if t_melt_init is None
-            else t_melt_init
-        )
+        self.t_melt = t_melt
         assert self.t_melt > 0, Exception("self.t_melt must be > 0")
 
         # run the loop

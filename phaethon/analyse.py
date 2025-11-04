@@ -196,7 +196,9 @@ class PhaethonResult:
         self.planet_params = params[r"planet"]
         self.star_params = params[r"star"]
         self.orbit_params = params[r"orbit"]
-        self.outgassing_params = params[r"outgassing"]
+
+        # backwards compatibiliy: 'outgassing' was called 'vapour_engine'
+        self.outgassing_params = params.get(r"outgassing", params.get(r"vapour_engine", None))
 
         # ----------- stellar spectrum ------------#
         self.spectral_exitance_star = None

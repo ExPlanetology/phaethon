@@ -138,7 +138,6 @@ class PhaethonPipeline:
 
         if not outdir.endswith("/"):
             outdir += "/"
-        os.makedirs(outdir, exist_ok=True)
         self.outdir = outdir
 
         self.planetary_system = planetary_system
@@ -237,6 +236,9 @@ class PhaethonPipeline:
         if nvcc_kws is None:
             nvcc_kws = {}
 
+        # create outdir
+        os.makedirs(self.outdir, exist_ok=True)
+
         # init logger
         logger = file_logger(logfile=self.outdir + logfile_name)
 
@@ -329,6 +331,9 @@ class PhaethonPipeline:
 
         if nvcc_kws is None:
             nvcc_kws = {}
+
+        # create outdir
+        os.makedirs(self.outdir, exist_ok=True)
 
         # init logger
         logger = file_logger(logfile=self.outdir + logfile_name)

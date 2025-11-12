@@ -275,7 +275,7 @@ class PhaethonPipeline:
             self._root_finder.t_init = self.t_melt
             self._root_finder.logger = logger
 
-            # solve
+            # solve for t_melt; this computes the equilibrated atmospheric P-T-profile.
             self._root_finder.solve()
 
             # store output and metadata
@@ -302,8 +302,8 @@ class PhaethonPipeline:
 
         # clear cached helios data, because they can occupy large amounts of memory
         finally:
-            logger.info(f"HELIOS memory wiped")
             self._wipe_helios_memory(nvcc_kws=nvcc_kws)
+            logger.info(f"HELIOS memory wiped")
 
     def single_run(
         self,
@@ -382,8 +382,8 @@ class PhaethonPipeline:
 
         # clear cached helios data, because they can occupy large amounts of memory
         finally:
-            logger.info(f"HELIOS memory wiped")
             self._wipe_helios_memory(nvcc_kws=nvcc_kws)
+            logger.info(f"HELIOS memory wiped")
 
     # ============================================================================================
     # SEMI-PRIVATE METHODS

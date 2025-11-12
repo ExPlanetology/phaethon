@@ -134,7 +134,7 @@ if __name__ == "__main__":
     )
 
     # You need to adept the architecutre to your system, see README
-    pipeline.run(nvcc_kws={"arch": "sm_89"}, t_abstol=35)
+    pipeline.run(nvcc_kws={"arch": "sm_86"}, t_abstol=35)
 
     # load results from run
     result = PhaethonResult("output/test/")

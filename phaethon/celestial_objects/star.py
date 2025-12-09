@@ -53,7 +53,7 @@ class Star:
     distance: float
     metallicity: float
     logg: float
-    file_or_blackbody: bool
+    file_or_blackbody: str
     source_file: str
     spectral_emittance_fitfunc: Callable
 

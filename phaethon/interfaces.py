@@ -41,7 +41,7 @@ class OutgassingProtocol(Protocol):
 
     @abstractmethod
     def get_info(self) -> dict:
-        """Information and params on the particular vapour engine"""
+        """Information and params on the particular outgassing protocol"""
 
     @abstractmethod
     def equilibriate(self, temperature: float) -> IdealGasMixture:

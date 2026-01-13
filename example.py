@@ -126,7 +126,7 @@ if __name__ == "__main__":
     pipeline = PhaethonPipeline(
         planetary_system=planetary_system,
         outgassing=OutgassingExample(),
-        fastchem_coupler=FastChemCoupler(ref_elem="O"),
+        fastchem_coupler=FastChemCoupler(ref_elem="O", cond_mode="no_cond"),
         outdir="output/test/",
         opac_species={"SiO"},
         scatterers={},

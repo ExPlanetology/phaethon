@@ -45,13 +45,15 @@ logger = logging.getLogger(__name__)
 #   CONSTANTS
 # ================================================================================================
 
-STANDARD_FASTCHEM_GAS_EQCONST = resources.files("phaethon.fastchem") / "FastChem_logK.dat"
+STANDARD_FASTCHEM_GAS_EQCONST = (
+    resources.files("phaethon.fastchem") / "FastChem_logK.dat"
+)
 STANDARD_FASTCHEM_COND_EQCONST = (
     resources.files("phaethon.fastchem") / "FastChem_logK_condensates.dat"
 )
 
 # ================================================================================================
-#   ENUMS
+#   CONDENSATION MODE
 # ================================================================================================
 
 
@@ -64,6 +66,52 @@ class CondensationMode(Enum):
     NO_COND = "no condensation"
     EQ_COND = "equilibrium condensation"
     RAINOUT = "rain-out of condensates"
+
+
+def to_cond_mode(
+    cond_mode: Union[
+        CondensationMode,
+        Literal["none", "equilibrium", "eq", "rainout", "rain", "r"],
+    ],
+) -> CondensationMode:
+    """
+    Assures that the proper condensation mode is used; accepts either condensation modes (mostly
+    for backwards compatibility) or strings (more convenient for the user).
+
+    Errors
+    ------
+    If an invalid condensation mode is passed, a ValueError is raised.
+    """
+    if isinstance(cond_mode, CondensationMode):
+        return cond_mode
+    elif isinstance(cond_mode, str):
+        match cond_mode:
+            case "no cond":
+                return CondensationMode.NO_COND
+            case "no_cond":
+                return CondensationMode.NO_COND
+            case "none":
+                return CondensationMode.NO_COND
+            case "n":
+                return CondensationMode.NO_COND
+            case "equilibrium":
+                return CondensationMode.EQ_COND
+            case "eq":
+                return CondensationMode.EQ_COND
+            case "e":
+                return CondensationMode.EQ_COND
+            case "rainout":
+                return CondensationMode.RAINOUT
+            case "rain":
+                return CondensationMode.RAINOUT
+            case "r":
+                return CondensationMode.RAINOUT
+            case _:
+                raise ValueError(f"'{cond_mode}' is not a valid condensation mode.")
+    else:
+        raise ValueError(
+            "Invalid cond_mode. Valid condensation modes are of type 'CondensationMode' or 'str'."
+        )
 
 
 # ================================================================================================
@@ -121,7 +169,10 @@ class FastChemCoupler:
         path_to_eqconst: Union[str, os.PathLike] = STANDARD_FASTCHEM_GAS_EQCONST,
         path_to_condconst: Union[str, os.PathLike] = STANDARD_FASTCHEM_COND_EQCONST,
         verbosity_level: Literal[0, 1, 2, 3, 4] = 0,
-        cond_mode: CondensationMode = CondensationMode.NO_COND,
+        cond_mode: Union[
+            CondensationMode,
+            Literal["none", "equilibrium", "eq", "rainout", "rain", "r"],
+        ] = CondensationMode.NO_COND,
     ) -> None:
         """
         Initialize the FastChemCoupler.
@@ -142,7 +193,7 @@ class FastChemCoupler:
                     "none"
                         --> no condensation
                     "equilibrium"
-                        --> equilbrium condensation, i.e. elemental composition is
+                        --> equilibrium condensation, i.e. elemental composition is
                             conserved in every atmospheric layer.
                     "rainout":
                         --> if condensates form, they precipitate and remove parts of
@@ -154,7 +205,7 @@ class FastChemCoupler:
         self.path_to_condconst = path_to_condconst
         self.verbosity_level = verbosity_level
         self.ref_elem = ref_elem
-        self.cond_mode = cond_mode
+        self.cond_mode = to_cond_mode(cond_mode)
 
     def get_grid(
         self, pressures: np.ndarray, temperatures: np.ndarray
@@ -193,7 +244,12 @@ class FastChemCoupler:
         outdir: Optional[str] = None,
         outfile_name: str = "chem.dat",
         monitor: bool = False,
-        cond_mode: Optional[CondensationMode] = None,
+        cond_mode: Optional[
+            Union[
+                CondensationMode,
+                Literal["none", "equilibrium", "eq", "rainout", "rain", "r"],
+            ]
+        ] = None,
     ) -> Tuple[pyfastchem.FastChem, pyfastchem.FastChemOutput]:
         """
         Perform gas speciation calculation using FastChem.
@@ -247,11 +303,7 @@ class FastChemCoupler:
             # condensation mode
             if cond_mode is None:
                 cond_mode = self.cond_mode
-
-            if not isinstance(cond_mode, CondensationMode):
-                raise TypeError(
-                    "'cond_mode' must be of type 'phaethon.CondensationMode'!"
-                )
+            cond_mode = to_cond_mode(cond_mode)
 
             match cond_mode:
                 case CondensationMode.NO_COND:
@@ -315,7 +367,12 @@ class FastChemCoupler:
         *,
         verbosity_level: Optional[Literal[0, 1, 2, 3, 4]] = None,
         ref_elem: Optional[str] = None,
-        cond_mode: Optional[CondensationMode] = None,
+        cond_mode: Optional[
+            Union[
+                CondensationMode,
+                Literal["none", "equilibrium", "eq", "rainout", "rain", "r"],
+            ]
+        ] = None,
         full_output: bool = False,
     ) -> Tuple[IdealGasMixture, pd.DataFrame, pd.DataFrame]:
         """
@@ -364,11 +421,7 @@ class FastChemCoupler:
             # condensation mode
             if cond_mode is None:
                 cond_mode = self.cond_mode
-
-            if not isinstance(cond_mode, CondensationMode):
-                raise TypeError(
-                    "'cond_mode' must be of type 'phaethon.CondensationMode'!"
-                )
+            cond_mode = to_cond_mode(cond_mode)
 
             match cond_mode:
                 case CondensationMode.NO_COND:

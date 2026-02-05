@@ -670,7 +670,7 @@ class PhaethonResult:
                 folder.
                 """
 
-        fastchem_coupler = FastChemCoupler(**fastchem_kwargs)
+        fastchem_coupler = FastChemCoupler(cond_mode=cond_mode, **fastchem_kwargs)
         fastchem, output_data = fastchem_coupler.run_fastchem(
             vapour=DummyGas(),
             pressures=self.pressure.to("bar").value,

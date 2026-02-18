@@ -23,6 +23,7 @@ by HELIOS/phaethon.
 
 from typing import Union, Callable, Optional, List, Tuple, Dict
 import numpy as np
+import warnings
 from scipy.interpolate import interp1d
 from molmass import Formula
 from astropy import units
@@ -321,6 +322,7 @@ class RadtransCoupler:
         pl_radius: Optional[Union[float, int, Quantity]] = None,
         gravity: Optional[float] = None,
         calctransrad_kws: Optional[Dict[str, float | str]] = None,
+        reference_pressure: Optional[float, int, Quantity] = None,
         **kwargs,
     ):
         """
@@ -362,6 +364,17 @@ class RadtransCoupler:
         # gravity; TODO: implement keyword!
         grav = self.phaethon_result.planet_params["grav"] * 100 # to cm/s^2
 
+        # reference pressure
+        if reference_pressure is None:
+            _ref_pressure_in_bar: float = float(self.p_profile[-1])
+        elif isinstance(reference_pressure, Quantity):
+            _ref_pressure_in_bar: float = reference_pressure.to("bar").value
+        elif isinstance(reference_pressure, (int, float)):
+            warnings.warn(r"'reference_pressure' has no unit, assuming bar")
+            _ref_pressure_in_bar: float = float(reference_pressure)
+        else:
+            raise TypeError(r"'reference_pressure' must be None, float or an astropy Quantity.")
+
         # transmission calculation
         wavl, transm_rad, self.additional_outputs = self.radtrans.calculate_transit_radii(
             temperatures=self.t_profile,
@@ -369,7 +382,7 @@ class RadtransCoupler:
             mean_molar_masses=self.mmw_profile,
             reference_gravity=grav,
             planet_radius=_pl_radius_in_cm,
-            reference_pressure=self.p_profile[-1],
+            reference_pressure=_ref_pressure_in_bar,
             **calctransrad_kws,
         )
 

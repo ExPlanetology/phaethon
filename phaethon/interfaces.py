@@ -23,9 +23,10 @@ Interface types for variable objects, namely outgassing and post-processing radi
 
 import logging
 from abc import abstractmethod
-from typing import Protocol
+from typing import Protocol, Tuple
+from astropy.units import Quantity
 
-
+from phaethon.result import PhaethonResult
 from phaethon.gas_mixture import IdealGasMixture
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,55 @@ class PostRadtransProtocol(Protocol):
     """
 
     @abstractmethod
-    def calc_transm(self):
+    def set_atmo(self, atmo: PhaethonResult, **radtrans_object_kwargs) -> None:
+        """
+        Set the atmospheric conditions from a PhaethonResult (temperature-pressure structure,
+        mean molecular weight, speciation with altitude, etc.).
+
+        Parameters
+        ----------
+            phaethon_result : PhaethonResult
+                Result from a phaethon simulation.
+            **radtrans_kwargs:
+                Keyword arguments passed to petitRADTRANS.Radtrans() object during initialisation.
+        """
+
+    @abstractmethod
+    def calc_transm(self, **kwargs) -> Tuple[Quantity, Quantity]:
         """
         Calculates the transmission spectrum.
+        """
+
+    @abstractmethod
+    def calc_planet_flux(self, **kwargs) -> Tuple[Quantity, Quantity]:
+        """
+        Flux emitted by the planet.
+
+        Parameters
+        ----------
+            **kwargs
+                Keywords passed to the routine (self)
+        Returns
+        -------
+            wavl_micron : np.ndarray
+                Wavelengths, in micron.
+            flux : np.ndarray
+                Flux emitted by the planet.
+        """
+
+    @abstractmethod
+    def cacl_fpfs(self, **kwargs) -> Tuple[Quantity, Quantity]:
+        """
+        Secondary occultation depth.
+
+        Parameters
+        ----------
+            **kwargs
+                Keywords passed to the routine (self)
+        Returns
+        -------
+            wavl_micron : np.ndarray
+                Wavelengths, in micron.
+            fpfs : np.ndarray
+                Planet-to-star flux ratio.
         """

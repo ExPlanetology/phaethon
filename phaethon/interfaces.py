@@ -17,10 +17,8 @@
 # along with Phaethon.  If not, see <https://www.gnu.org/licenses/>.
 #
 """
-Interface types for variable objects, namely outgassing and .
-
-This module defines formal protocol classes (via :class:`typing.Protocol`) that specify the
-expected interfaces for different thermodynamic components.
+Interface types for variable objects, namely outgassing and post-processing radiative transfer
+(with e.g. petitRADTRANS).
 """
 
 import logging
@@ -46,3 +44,15 @@ class OutgassingProtocol(Protocol):
     @abstractmethod
     def equilibriate(self, temperature: float) -> IdealGasMixture:
         """Equilibrate chemistry at the magma-ocean atmosphere interface"""
+
+class PostRadtransProtocol(Protocol):
+    """
+    Protocol for radiative transfer calculations after the P-T structure of the atmosphere has been
+    equilibrated (e.g., with HELIOS). 
+    """
+
+    @abstractmethod
+    def calc_transm(self):
+        """
+        Calculates the transmission spectrum.
+        """

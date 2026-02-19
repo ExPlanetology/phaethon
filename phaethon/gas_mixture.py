@@ -38,7 +38,7 @@ T = TypeVar("T")
 def sanitise_formula(formula: str) -> str:
     """
     FastChem names might include additons like "cis", "trans", "_cnn" etc., which must be
-    sanitised before passing them to molmass.Formula
+    sanitised before passing them to `molmass.Formula`.
     """
     if "_" in formula:
         # removes both "_cnn" and other suffixes

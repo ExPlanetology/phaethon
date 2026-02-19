@@ -1,4 +1,4 @@
-# 
+#
 # Copyright 2024-2025 Fabian L. Seidler
 #
 # This file is part of Phaethon.
@@ -26,7 +26,7 @@ from abc import abstractmethod
 from typing import Protocol, Tuple
 from astropy.units import Quantity
 
-from phaethon.result import PhaethonResult
+from phaethon.analyse import PhaethonResult
 from phaethon.gas_mixture import IdealGasMixture
 
 logger = logging.getLogger(__name__)
@@ -46,10 +46,11 @@ class OutgassingProtocol(Protocol):
     def equilibriate(self, temperature: float) -> IdealGasMixture:
         """Equilibrate chemistry at the magma-ocean atmosphere interface"""
 
+
 class PostRadtransProtocol(Protocol):
     """
     Protocol for radiative transfer calculations after the P-T structure of the atmosphere has been
-    equilibrated (e.g., with HELIOS). 
+    equilibrated (e.g., with HELIOS).
     """
 
     @abstractmethod
@@ -90,7 +91,7 @@ class PostRadtransProtocol(Protocol):
         """
 
     @abstractmethod
-    def cacl_fpfs(self, **kwargs) -> Tuple[Quantity, Quantity]:
+    def calc_fpfs(self, **kwargs) -> Tuple[Quantity, Quantity]:
         """
         Secondary occultation depth.
 

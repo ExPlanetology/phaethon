@@ -22,6 +22,7 @@ from phaethon import (
 from phaethon.pipeline import PhaethonPipeline
 from phaethon.analyse import PhaethonResult
 from phaethon.plotting import plot_chem
+from phaethon.postradtrans.petitradtrans_coupling import PetitRadtransCoupler
 
 logger = debug_file_logger()
 
@@ -131,6 +132,7 @@ if __name__ == "__main__":
         opac_species={"SiO"},
         scatterers={},
         opacity_path=OPACITY_PATH,
+        postradtrans=PetitRadtransCoupler(wlen_bords_micron=(0.2, 25), line_species=["SiO"])
     )
 
     # You need to adept the architecutre to your system, see README

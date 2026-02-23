@@ -1,5 +1,5 @@
 #
-# Copyright 2024-2025 Fabian L. Seidler
+# Copyright 2024-2026 Fabian L. Seidler
 #
 # This file is part of Phaethon.
 #
@@ -23,17 +23,13 @@ The main pipeline that streamlines the computation of the structure of an outgas
 import importlib
 import traceback
 import sys
-import warnings
 import json
 import logging
 import os
 import time
-from typing import Tuple, Optional, Literal, List, Dict, Union
-from io import TextIOWrapper
+from typing import Optional, Literal, Dict, Union
 import numpy as np
-from numpy.typing import ArrayLike
 import pandas as pd
-import bayes_opt
 
 # ----- HELIOS imports -----#
 from helios import additional_heating as add_heat
@@ -47,17 +43,18 @@ from helios import write
 
 # ----- PHAETHON imports -----#
 from phaethon.celestial_objects import PlanetarySystem
+from phaethon.analyse import PhaethonResult
 from phaethon.fastchem.coupling import FastChemCoupler
 from phaethon.gas_mixture import IdealGasMixture
-from phaethon.interfaces import OutgassingProtocol
-from phaethon.root_finder import PhaethonRootFinder, PhaethonConvergenceError
+from phaethon.interfaces import OutgassingProtocol, PostRadtransProtocol
+from phaethon.root_finder import PhaethonRootFinder
 from phaethon.logger import file_logger
-
 
 DEFAULT_PARAM_FILE = (
     importlib.resources.files("phaethon.data") / "standard_lavaplanet_params.dat"
 )
 """ Default HELIOS parameters, suitable for lava planets. """
+
 
 class PhaethonPipeline:
     """
@@ -89,6 +86,9 @@ class PhaethonPipeline:
     _plotter: rt_plot.Plot
     _fogger: clouds.Cloud
 
+    # post-radtrans routine
+    postradtrans: Optional[PostRadtransProtocol]
+
     def __init__(
         self,
         planetary_system: PlanetarySystem,
@@ -106,6 +106,7 @@ class PhaethonPipeline:
             max_iter=15,
             tmelt_limits=(10.0, 10000.0),
         ),
+        postradtrans: Optional[PostRadtransProtocol] = None,
     ) -> None:
         """
         Init the phaethon pipeline.
@@ -162,6 +163,9 @@ class PhaethonPipeline:
         self._writer = None
         self._plotter = None
         self._fogger = None
+
+        # post-radtrans routine (e.g., petitRADTRANS)
+        self.postradtrans = postradtrans
 
     def info_dump(self) -> None:
         """
@@ -289,7 +293,7 @@ class PhaethonPipeline:
             logger.info(f"Finished. Duration: {(end - start) / 60.} min")
 
         # log error, just in case
-        except Exception as e:
+        except Exception:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback_details = traceback.format_exception(
                 exc_type, exc_value, exc_traceback
@@ -303,7 +307,49 @@ class PhaethonPipeline:
         # clear cached helios data, because they can occupy large amounts of memory
         finally:
             self._wipe_helios_memory(nvcc_kws=nvcc_kws)
-            logger.info(f"HELIOS memory wiped")
+            logger.info("HELIOS memory wiped")
+
+        # run postradtrans on fully equilibrated atmosphere
+        self.run_post_radtrans(logger)
+
+    def run_post_radtrans(self, logger: Optional[logging.Logger] = None):
+        """
+        Executes a radiative transfer code (petitRADTRANS, TauREx) using the equilibrated
+        P-T-structure obtained by HELIOS.
+
+        Parameters
+        ----------
+            logger : Optional[logging.Logger]
+                external logger; default is `None`
+        """
+        if self.postradtrans is not None:
+
+            if logger is not None:
+                logger.info("Running post-radtrans routine...")
+
+            phaethon_result = PhaethonResult(
+                self.outdir, load_star=False
+            )  # TODO: fix load_star so it can be always andloaded
+            self.postradtrans.set_atmo(phaethon_result)
+
+            # calc spectra; wavl is the same for all, so only store it once
+            wavl, fpfs = self.postradtrans.calc_fpfs(use_phoenix=True)
+            _, transm_radius = self.postradtrans.calc_transm_radius()
+            _, transm_depth = self.postradtrans.calc_transm_depth()
+            _, planet_flux = self.postradtrans.calc_planet_flux()
+
+            # save as pandas data frame
+            df = pd.DataFrame()
+            df["wavl"] = wavl.to("micron").value
+            df["transm_radius"] = transm_radius.to("R_earth").value
+            df["transm_depth"] = transm_depth.value * 1e6  # dimensionless; to ppm
+            df["fpfs"] = fpfs.value * 1e6  # dimensionless; to ppm
+            df["planet_flux"] = planet_flux.to("erg / (s * cm3)").value
+            df.to_csv(self.outdir + "postradtrans.csv", index=None)
+
+        else:
+            if logger is not None:
+                logger.info("No postradtrans routine specified, skipping.")
 
     def single_run(
         self,
@@ -369,7 +415,7 @@ class PhaethonPipeline:
             logger.info(f"Finished. Duration: {(end - start) / 60.} min")
 
         # log error, just in case
-        except Exception as e:
+        except Exception:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback_details = traceback.format_exception(
                 exc_type, exc_value, exc_traceback
@@ -383,7 +429,7 @@ class PhaethonPipeline:
         # clear cached helios data, because they can occupy large amounts of memory
         finally:
             self._wipe_helios_memory(nvcc_kws=nvcc_kws)
-            logger.info(f"HELIOS memory wiped")
+            logger.info("HELIOS memory wiped")
 
     # ============================================================================================
     # SEMI-PRIVATE METHODS
@@ -487,7 +533,7 @@ class PhaethonPipeline:
             Additional keywords for CUDA configuration. Needed during reset of the HELIOS
             computation module.
         """
-        
+
         if nvcc_kws is None:
             nvcc_kws = {}
 

@@ -1,5 +1,5 @@
 #
-# Copyright 2024-2025 Fabian L. Seidler
+# Copyright 2024-2026 Fabian L. Seidler
 #
 # This file is part of Phaethon.
 #
@@ -21,27 +21,36 @@ Classes and utilities to conveniently use petitRADTRANS on the atmospheric profi
 by HELIOS/phaethon.
 """
 
-from typing import Union, Callable, Optional, List, Tuple, Dict
-import numpy as np
+from io import StringIO
+import sys
+from contextlib import contextmanager
+from typing import Union, Callable, Optional, List, Tuple, Self
+from dataclasses import dataclass
 import warnings
+import logging
+
+# astropy.units generates the 'no-member' error for the units.
+# pylint: disable=no-member
+from astropy import units
+from astropy.units import Quantity, Unit, UnitConversionError
+import astropy.constants as ac
 from scipy.interpolate import interp1d
 from molmass import Formula
-from astropy import units
-from astropy.units import Quantity
+import numpy as np
+import numpy.typing as npt
 
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.stellar_spectra.phoenix import PhoenixStarTable
 
 from phaethon.analyse import PhaethonResult
+from phaethon.interfaces import PostRadtransProtocol
 from phaethon.utilities import formula_to_hill
 
-
-# ================================================================================================
-#   CLASSES
-# ================================================================================================
+logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
 class GasSpeciesNameTranslator:
     """
     Relates a species to its name in FastChem.
@@ -54,16 +63,89 @@ class GasSpeciesNameTranslator:
 
     formula: str
     fastchem_name: str
-    atom_mass: str
+    atom_mass: float
 
-    def __init__(self, formula: str):
-        self.formula = formula
-        self.fastchem_name = formula_to_hill(formula)
-        __formula = Formula(formula)
-        self.atom_mass = __formula.mass
+    @classmethod
+    def new(cls, formula: str) -> Self:
+        """
+        Create a new species that relates a chemical species to names in petitRADTRANS and in
+        FastChem.
+
+        Parameters
+        ----------
+            formula : str
+                Formula of gas species.
+        """
+        return cls(
+            formula=formula,
+            fastchem_name=formula_to_hill(formula),
+            atom_mass=Formula(formula).mass,
+        )
 
 
-class RadtransCoupler:
+# pylint: disable=invalid-name
+@contextmanager
+def catch_petitRADTRANS_spam():
+    """
+    Context manager for absorbing warnings/prints raised by petitRADTRANS, which directly
+    go to stdout. However, phaethon should redirect them to the logger instead.
+    """
+    out = StringIO()
+    sys.stdout = out
+    try:
+        yield out.getvalue
+    finally:
+        sys.stdout = sys.__stdout__
+
+
+def get_name_of_variable(var) -> Optional[str]:
+    """
+    Retrieves the name of a variable from `globals`.
+    """
+    var_metadata = [k for k, v in globals().items() if v is var]
+    if len(var_metadata) == 0:
+        return None
+    name = var_metadata[0]
+    return name
+
+
+def to_astropy_unit(value: float | int | Quantity, target_unit: Unit) -> Quantity:
+    """
+    Makes sure that a value is a astropy.units.Quantity of correct type.
+    """
+
+    param_name: str = get_name_of_variable(value)
+
+    # Correct type (python type)?
+    if not isinstance(value, (float, int, Quantity)):
+        if param_name is None:
+            raise TypeError(
+                "Anonymous variable to `to_astropy_unit` must be of type 'float', 'int' or \
+                    'astropy.units.Quantity'."
+            )
+        raise TypeError(
+            f"'{param_name}' must be of type 'float', 'int' or 'astropy.units.Quantity'."
+        )
+
+    # Correct unit ("type" in astropy.units)?
+    if isinstance(value, Quantity):
+        if value.unit.physical_type != target_unit.physical_type:
+            if param_name is None:
+                raise UnitConversionError(
+                    f"Anonymous variable to `to_astropy_unit` is not of type \
+                        '{target_unit.physical_type}'!"
+                )
+            raise UnitConversionError(
+                f"'{param_name}' is not of type '{target_unit.physical_type}'!"
+            )
+
+    #
+    if isinstance(value, (float, int)):
+        return value * target_unit
+    return value
+
+
+class PetitRadtransCoupler(PostRadtransProtocol):
     """
     Makes using a Phaethon output as input for petitRADTRANS easy.
 
@@ -93,6 +175,7 @@ class RadtransCoupler:
     t_profile: np.ndarray
     massfrac_profiles: dict
     mmw_profile: np.ndarray
+    __atmosphere_is_init: bool
 
     wlen_bords_micron: list
     gas_continuum_contributors: list
@@ -105,31 +188,73 @@ class RadtransCoupler:
         self,
         line_species: List[str],
         wlen_bords_micron: Tuple[float, float],
-        teff_star: float,
         gas_continuum_contributors: Optional[List[str]] = None,
         rayleigh_species: Optional[List[str]] = None,
+        **kwargs,
     ) -> None:
 
         self.wlen_bords_micron = wlen_bords_micron
         self.line_species = [
-            GasSpeciesNameTranslator(species) for species in line_species
+            GasSpeciesNameTranslator.new(species) for species in line_species
         ]
         if rayleigh_species is None:
             rayleigh_species = []
         self.rayleigh_species = [
-            GasSpeciesNameTranslator(species) for species in rayleigh_species
+            GasSpeciesNameTranslator.new(species) for species in rayleigh_species
         ]
 
         if gas_continuum_contributors is None:
             gas_continuum_contributors = []
         self.gas_continuum_contributors = gas_continuum_contributors
 
-        self.radtrans = None
         self.additional_outputs = {}
 
-        # stellar spectrum
-        star = PhoenixStarTable()
-        stellar_spec, _ = star.compute_spectrum(teff_star)
+        self.__atmosphere_is_init = False
+        self.star_spec_fit = None
+
+        # init Radtrans object with EMPTY pressure array
+        with warnings.catch_warnings(), catch_petitRADTRANS_spam() as redirect_spam:
+            # pRT warns that atmosphere is initialized with one layer at 1 bar, which is ignored
+            # because the pressure structure is set later in `set_atmo`.
+            warnings.simplefilter("ignore")
+
+            self.radtrans = Radtrans(
+                line_species=[specimen.formula for specimen in self.line_species],
+                wavelength_boundaries=self.wlen_bords_micron,
+                gas_continuum_contributors=self.gas_continuum_contributors,
+                rayleigh_species=(
+                    [specimen.formula for specimen in self.rayleigh_species]
+                    if len(self.rayleigh_species) > 0
+                    else None
+                ),
+                **kwargs,
+            )
+
+            # restore captured petitRADTRANS spam as log message
+            captured = redirect_spam()
+            for line in captured.splitlines():
+                logger.info(line)
+
+    def set_phoenix_star(self, t_eff: float | int):
+        """
+        Set the star & its spectrum from the PHOENIX database.
+
+        NOTE: This function is called by 'set_atmo'. If you have a custom star, you must reset
+        it manually after every call to 'set_atmo'.
+
+        Parameters
+        ----------
+            teff_star : float
+                Effective temperature of the host star.
+        """
+        with catch_petitRADTRANS_spam() as redirect_spam:
+            star = PhoenixStarTable()
+            stellar_spec, _ = star.compute_spectrum(t_eff)
+
+            # restore captured petitRADTRANS spam as log message
+            captured = redirect_spam()
+            logger.info(captured)
+
         wlen_in_cm = stellar_spec[:, 0]
         flux_star_in_hz = stellar_spec[:, 1]
         flux_star_in_cm = flux_star_in_hz * cst.c / (wlen_in_cm**2)
@@ -139,7 +264,7 @@ class RadtransCoupler:
     def set_atmo(
         self,
         phaethon_result: PhaethonResult,
-        **radtrans_kwargs,
+        **kwargs,
     ) -> None:
         """
         Set the atmospheric conditions from a PhaethonResult (temperature-pressure structure,
@@ -149,17 +274,15 @@ class RadtransCoupler:
         ----------
             phaethon_result : PhaethonResult
                 Result from a phaethon simulation.
-            **radtrans_kwargs:
-                Keyword arguments passed to petitRADTRANS.Radtrans() object during initialisation.
         """
 
         self.phaethon_result = phaethon_result
 
-        # p-T profiles; increasing order (restriction py petitRADTRANS)
+        # p-T profiles; increasing order (restriction by petitRADTRANS)
         self.p_profile = self.phaethon_result.pressure.to("bar").value[::-1]
         self.t_profile = self.phaethon_result.temperature.to("K").value[::-1]
 
-        # chemistry profiles, in massfracs (because pRT ...)
+        # chemistry profiles in massfracs (because pRT ...)
         self.massfrac_profiles = {}
         for specimen in self.line_species + self.rayleigh_species:
             self.massfrac_profiles[specimen.formula] = (
@@ -169,22 +292,35 @@ class RadtransCoupler:
             )
         self.mmw_profile = self.phaethon_result.chem["m(u)"].to_numpy()[::-1]
 
-        # init Radtrans object
-        self.radtrans = Radtrans(
-            pressures=self.p_profile,
-            line_species=[specimen.formula for specimen in self.line_species],
-            wavelength_boundaries=self.wlen_bords_micron,
-            gas_continuum_contributors=self.gas_continuum_contributors,
-            rayleigh_species=(
-                [specimen.formula for specimen in self.rayleigh_species]
-                if len(self.rayleigh_species) > 0
-                else None
-            ),
-            **radtrans_kwargs,
-        )
+        # update pressure profile; unfortunately, this means we have to overwrite _pressure,
+        # otherwise we are forced to reload line-lists whenever 'set_atmo' is called.
+        # pylint: disable=protected-access
+        self.radtrans._pressures = self.phaethon_result.pressure.to("dyne / cm2").value[
+            ::-1
+        ]
+
+        # inform class that atmosphere is set
+        self.__atmosphere_is_init = True
+
+        # update star as well
+        self.set_phoenix_star(t_eff=self.phaethon_result.star_params["t_eff"])
+
+    def __is_atmosphere_init(self) -> None:
+        """
+        Checks if an atmosphere has been initialised, otherwise the output of petitRADTRANS
+        either makes no sense, or fails with an indescriptive error warning.
+        """
+        if not self.__atmosphere_is_init:
+            raise ValueError(
+                "No atmosphere has been loaded. Please run 'set_atmo' first!"
+            )
 
     def calc_planet_flux(
-        self, r_planet: float, reference_gravity: float = 981.0, calcflux_kws: Optional[Dict[str, float | str]] = None,
+        self,
+        *,
+        pl_radius: Optional[Union[float, int, Quantity]] = None,
+        pl_mass: Optional[Union[float, int, Quantity]] = None,
+        **kwargs,
     ) -> Union[np.ndarray, np.ndarray]:
         """
         Flux emitted by the planet.
@@ -202,27 +338,67 @@ class RadtransCoupler:
             flux : np.ndarray
                 Flux emitted by the planet.
         """
-        wavl_cm, planet_flux, self.additional_outputs = self.radtrans.calculate_flux(
-            temperatures=self.t_profile,
-            mass_fractions=self.massfrac_profiles,
-            reference_gravity=reference_gravity,
-            mean_molar_masses=self.mmw_profile,
-            planet_radius=r_planet * cst.r_earth,
-        )
-        wavl_micron = wavl_cm * 1e4
 
-        return wavl_micron, planet_flux
+        self.__is_atmosphere_init()
+
+        # planet radius
+        _planet_radius: Quantity = to_astropy_unit(
+            (
+                pl_radius
+                if pl_radius is not None
+                else self.phaethon_result.planet_params["radius"] * units.R_earth
+            ),
+            target_unit=units.R_earth,
+        )
+
+        # planet mass
+        _planet_mass: Quantity = to_astropy_unit(
+            (
+                pl_mass
+                if pl_mass is not None
+                else self.phaethon_result.planet_params["mass"] * units.M_earth
+            ),
+            target_unit=units.M_earth,
+        )
+
+        # "surface" gravity (i.e., gravitational acceleration at reference pressure)
+        _reference_gravity = (ac.G * _planet_mass / (_planet_radius**2)).decompose()
+
+        # planet spectral emittance
+        wavl_cm, planet_spectral_emittance, self.additional_outputs = (
+            self.radtrans.calculate_flux(
+                temperatures=self.t_profile,
+                mass_fractions=self.massfrac_profiles,
+                mean_molar_masses=self.mmw_profile,
+                reference_gravity=_reference_gravity.to("cm / s2").value,
+                planet_radius=_planet_radius.to("cm").value,
+                **kwargs,
+            )
+        )
+
+        # spectral emittance (of one cm2 on the surface of the planet) to global emission
+        planet_flux = (
+            planet_spectral_emittance
+            * 4.0
+            * np.pi
+            * (_planet_radius.to("cm").value) ** 2
+        )
+
+        # assign proper units
+        wavl = (wavl_cm * units.cm).to("micron")
+        planet_flux *= units.erg / (units.cm**2 * units.second * units.cm)
+
+        return wavl, planet_flux
 
     def calc_fpfs(
         self,
         *,
         pl_radius: Optional[Union[float, int, Quantity]] = None,
+        pl_mass: Optional[Union[float, int, Quantity]] = None,
         st_radius: Optional[Union[float, int, Quantity]] = None,
-        grav_acc: Optional[Union[float, int, Quantity]] = None,
         use_phoenix: bool = False,
-        calcflux_kws: Optional[Dict[str, float | str]] = None,
         **kwargs,
-    ) -> Union[np.ndarray, np.ndarray]:
+    ) -> Union[Quantity, np.ndarray]:
         """
         Secondary occultation depth.
 
@@ -238,8 +414,8 @@ class RadtransCoupler:
                 If true, then a PHOENIX spectrum matching the stellar parameters is downladed and
                 used. Otherwise, try to use the stellar spectrum from the HELIOS simualtion.
                 Default is False.
-            **calcflux_kws
-                Keywords passed to petitRADTRANS.radtrans.calculate_flux().
+            **kwargs
+                Keywords passed to `self.calc_planet_flux`.
         Returns
         -------
             wavl_micron : np.ndarray
@@ -248,60 +424,34 @@ class RadtransCoupler:
                 Planet-to-star flux ratio.
         """
 
-        # check if atmosphere has been set
-        if self.radtrans is None:
-            raise ValueError("Atmosphere is undefined, please run 'set_atmo' first.")
+        self.__is_atmosphere_init()
 
-        # planetary radius
-        if pl_radius is None:
-            _pl_radius_in_cm: float = self.phaethon_result.planet_params[
-                "radius"
-            ] * units.R_earth.to("cm")
-        elif isinstance(pl_radius, Quantity):
-            _pl_radius_in_cm: float = pl_radius.to("cm")
-        elif isinstance(pl_radius, (int, float)):
-            warnings.warn(r"'pl_radius' has no unit, assuming Earth radii")
-            _pl_radius_in_cm: float = float(pl_radius) * units.R_earth.to("cm")
-        else:
-            raise TypeError(r"'pl_radius' must be None, float or an astropy Quantity.")
-
-        # stellar radius
-        if st_radius is None:
-            _st_radius_in_cm: float = self.phaethon_result.star_params[
-                "radius"
-            ] * units.R_sun.to("cm")
-        elif isinstance(st_radius, Quantity):
-            _st_radius_in_cm: float = st_radius.to("cm")
-        elif isinstance(st_radius, (int, float)):
-            warnings.warn(r"'st_radius' has no unit, assuming Solar radii")
-            _st_radius_in_cm: float = float(st_radius) * units.R_sun.to("cm")
-        else:
-            raise TypeError(r"'st_radius' must be None, float or an astropy Quantity.")
-
-        if calcflux_kws is None:
-            calcflux_kws = {}
-
-        # get emission spectrum of the planet
-        wavl_cm, planet_spectral_emittance, self.additional_outputs = self.radtrans.calculate_flux(
-            temperatures=self.t_profile,
-            mass_fractions=self.massfrac_profiles,
-            reference_gravity=(
-                grav_acc
-                if grav_acc is not None
-                else self.phaethon_result.planet_params["grav"] * 100
+        # star radius
+        _star_radius: Quantity = to_astropy_unit(
+            (
+                st_radius
+                if st_radius is not None
+                else self.phaethon_result.star_params["radius"] * units.R_sun
             ),
-            mean_molar_masses=self.mmw_profile,
-            planet_radius=_pl_radius_in_cm,
-            star_radius=_st_radius_in_cm,
-            **calcflux_kws,
+            target_unit=units.R_sun,
         )
-        planet_flux = planet_spectral_emittance * 4.0 * np.pi * (_pl_radius_in_cm) ** 2
-        wavl_micron = wavl_cm * 1e4
+
+        # planet emission
+        wavl, planet_flux = self.calc_planet_flux(
+            pl_radius=pl_radius, pl_mass=pl_mass, **kwargs
+        )
 
         # get stellar spectrum
         if use_phoenix:
             stellar_flux = (
-                self.star_spec_fit(wavl_micron) * 4.0 * np.pi * (_st_radius_in_cm) ** 2
+                (
+                    self.star_spec_fit(wavl.to("micron").value)
+                    * 4.0
+                    * np.pi
+                    * (_star_radius.to("cm").value) ** 2
+                )
+                * units.erg
+                / (units.cm**2 * units.second * units.cm)
             )
         else:
             fit_stellar_flux = interp1d(
@@ -309,32 +459,42 @@ class RadtransCoupler:
                 self.phaethon_result.spectral_exitance_star,
             )
             stellar_flux = (
-                fit_stellar_flux(wavl_micron) * 4.0 * np.pi * (_st_radius_in_cm) ** 2
+                (
+                    fit_stellar_flux(wavl.to("micron").value)
+                    * 4.0
+                    * np.pi
+                    * (_star_radius.to("cm").value) ** 2
+                )
+                * units.erg
+                / (units.cm**2 * units.second * units.cm)
             )
 
         # planet-to-star flux ratio (secondary eclipse depth)
-        fpfs = planet_flux / stellar_flux
+        fpfs = (planet_flux / stellar_flux).decompose()
 
-        return wavl_micron, fpfs
+        return wavl, fpfs
 
-    def calc_transm(
+    def calc_transm_radius(
         self,
+        *,
         pl_radius: Optional[Union[float, int, Quantity]] = None,
-        gravity: Optional[float] = None,
-        calctransrad_kws: Optional[Dict[str, float | str]] = None,
+        pl_mass: Optional[Union[float, int, Quantity]] = None,
         reference_pressure: Optional[float, int, Quantity] = None,
         **kwargs,
-    ):
+    ) -> [Quantity, Quantity]:
         """
-        Calculate the transmission spectrum of a planet.
+        Transmission radius as function of wavelength.
 
         Parameters
         ----------
-            r_planet : float
-                Radius of planet, in R_EARTH.
-            gravity : float
-                Gravitational acceleration, in cgs.
-            **calctransrad_kws:
+            pl_radius : float
+                Radius of planet. If not 'astropy.units.Quantity', assume Earth-radius.
+            pl_mass : float
+                Mass of planet. If not 'astropy.units.Quantity', assume Earth-mass.
+            reference_pressure : float
+                Pressure where the planet has radius `pl_radius`. If not 'astropy.units.Quantity',
+                assume bar.
+            **kwargs:
                 Keywords passed to petitRADTRANS.radtrans.calculate_transit_radii().
 
         Returns
@@ -345,55 +505,124 @@ class RadtransCoupler:
                 transmission radius, in R_earth
         """
 
-        if calctransrad_kws is None:
-            calctransrad_kws = {}
+        self.__is_atmosphere_init()
 
-        # planetary radius
-        if pl_radius is None:
-            _pl_radius_in_cm: float = self.phaethon_result.planet_params[
-                "radius"
-            ] * units.R_earth.to("cm")
-        elif isinstance(pl_radius, Quantity):
-            _pl_radius_in_cm: float = pl_radius.to("cm")
-        elif isinstance(pl_radius, (int, float)):
-            warnings.warn(r"'pl_radius' has no unit, assuming Earth radii")
-            _pl_radius_in_cm: float = float(pl_radius) * units.R_earth.to("cm")
-        else:
-            raise TypeError(r"'pl_radius' must be None, float or an astropy Quantity.")
+        # reference pressure (where the radius of the planet is computed)
+        _ref_pressure: Quantity = to_astropy_unit(
+            (
+                reference_pressure
+                if reference_pressure is not None
+                else self.p_profile[-1] * units.bar
+            ),
+            target_unit=units.bar,
+        )
 
-        # gravity; TODO: implement keyword!
-        grav = self.phaethon_result.planet_params["grav"] * 100 # to cm/s^2
+        # planet radius
+        _planet_radius: Quantity = to_astropy_unit(
+            (
+                pl_radius
+                if pl_radius is not None
+                else self.phaethon_result.planet_params["radius"] * units.R_earth
+            ),
+            target_unit=units.R_earth,
+        )
 
-        # reference pressure
-        if reference_pressure is None:
-            _ref_pressure_in_bar: float = float(self.p_profile[-1])
-        elif isinstance(reference_pressure, Quantity):
-            _ref_pressure_in_bar: float = reference_pressure.to("bar").value
-        elif isinstance(reference_pressure, (int, float)):
-            warnings.warn(r"'reference_pressure' has no unit, assuming bar")
-            _ref_pressure_in_bar: float = float(reference_pressure)
-        else:
-            raise TypeError(r"'reference_pressure' must be None, float or an astropy Quantity.")
+        # planet mass
+        _planet_mass: Quantity = to_astropy_unit(
+            (
+                pl_mass
+                if pl_mass is not None
+                else self.phaethon_result.planet_params["mass"] * units.M_earth
+            ),
+            target_unit=units.M_earth,
+        )
+
+        # "surface" gravity (i.e., gravitational acceleration at reference pressure)
+        _reference_gravity = (ac.G * _planet_mass / (_planet_radius**2)).decompose()
 
         # transmission calculation
-        wavl, transm_rad, self.additional_outputs = self.radtrans.calculate_transit_radii(
-            temperatures=self.t_profile,
-            mass_fractions=self.massfrac_profiles,
-            mean_molar_masses=self.mmw_profile,
-            reference_gravity=grav,
-            planet_radius=_pl_radius_in_cm,
-            reference_pressure=_ref_pressure_in_bar,
-            **calctransrad_kws,
+        wavl_cm, transm_rad_in_cm, self.additional_outputs = (
+            self.radtrans.calculate_transit_radii(
+                temperatures=self.t_profile,
+                mass_fractions=self.massfrac_profiles,
+                mean_molar_masses=self.mmw_profile,
+                reference_gravity=_reference_gravity.to("cm / s2").value,
+                planet_radius=_planet_radius.to("cm").value,
+                reference_pressure=_ref_pressure.to("bar").value,
+                **kwargs,
+            )
+        )
+
+        # apply correct units
+        wavl: Quantity = (wavl_cm * units.cm).to("micron")
+        transm_rad: Quantity = (transm_rad_in_cm * units.cm).to("R_earth")
+
+        return wavl, transm_rad
+
+    def calc_transm_depth(
+        self,
+        *,
+        pl_radius: Optional[Union[float, int, Quantity]] = None,
+        pl_mass: Optional[Union[float, int, Quantity]] = None,
+        st_radius: Optional[Union[float, int, Quantity]] = None,
+        reference_pressure: Optional[float, int, Quantity] = None,
+        **kwargs,
+    ) -> [Quantity, npt.ArrayLike]:
+        r"""
+        Transmission depth:
+
+        ..math:
+            \delta = \left( \frac{R_p[\lambda]}{R_s} \right)^2
+
+        Effectively, the fractional area covered by the planet during transit, equivalent to the
+        dimming.
+
+        Parameters
+        ----------
+            pl_radius : float
+                Radius of planet. If not 'astropy.units.Quantity', assume Earth-radius.
+            pl_mass : float
+                Mass of planet. If not 'astropy.units.Quantity', assume Earth-mass.
+            reference_pressure : float
+                Pressure where the planet has radius `pl_radius`. If not 'astropy.units.Quantity',
+                assume bar.
+            st_radius : float
+                Radius of star. If not 'astropy.units.Quantity', assume Sun-radius.
+            **kwargs:
+                Keywords passed to petitRADTRANS.radtrans.calculate_transit_radii().
+
+        Returns
+        -------
+            wavl_micron : np.ndarray
+                Wavelength of spectrum, in micron.
+            transm_rad : np.ndarray
+                transmission radius, in R_earth
+        """
+
+        self.__is_atmosphere_init()
+
+        # planet transmission radius
+        wavl, transm_rad = self.calc_transm_radius(
+            pl_radius=pl_radius,
+            pl_mass=pl_mass,
+            reference_pressure=reference_pressure,
+            **kwargs,
+        )
+
+        # star radius
+        _star_radius: Quantity = to_astropy_unit(
+            (
+                st_radius
+                if st_radius is not None
+                else self.phaethon_result.star_params["radius"] * units.R_sun
+            ),
+            target_unit=units.R_sun,
         )
 
         # calculate area frac
-        _st_radius_in_cm: float = self.phaethon_result.star_params[
-                "radius"
-            ] * units.R_sun.to("cm")
-        transm_area_frac = (transm_rad/_st_radius_in_cm)**2
+        transm_area_frac = (transm_rad / _star_radius) ** 2
 
-        # scale to proper units
-        wavl_micron = wavl * 1e4
-        transm_rad /= cst.r_earth
+        # make dimensionless (above quantity is 'earthRad2 / solRad2')
+        transm_area_frac = transm_area_frac.decompose()
 
-        return wavl_micron, transm_area_frac
+        return wavl, transm_area_frac

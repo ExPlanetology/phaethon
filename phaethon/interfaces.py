@@ -25,6 +25,7 @@ import logging
 from abc import abstractmethod
 from typing import Protocol, Tuple
 from astropy.units import Quantity
+import numpy.typing as npt
 
 from phaethon.analyse import PhaethonResult
 from phaethon.gas_mixture import IdealGasMixture
@@ -54,7 +55,7 @@ class PostRadtransProtocol(Protocol):
     """
 
     @abstractmethod
-    def set_atmo(self, atmo: PhaethonResult, **radtrans_object_kwargs) -> None:
+    def set_atmo(self, phaethon_result: PhaethonResult, **kwargs) -> None:
         """
         Set the atmospheric conditions from a PhaethonResult (temperature-pressure structure,
         mean molecular weight, speciation with altitude, etc.).
@@ -63,14 +64,21 @@ class PostRadtransProtocol(Protocol):
         ----------
             phaethon_result : PhaethonResult
                 Result from a phaethon simulation.
-            **radtrans_kwargs:
+            **kwargs:
                 Keyword arguments passed to petitRADTRANS.Radtrans() object during initialisation.
         """
 
     @abstractmethod
-    def calc_transm(self, **kwargs) -> Tuple[Quantity, Quantity]:
+    def calc_transm_radius(self, **kwargs) -> Tuple[Quantity, Quantity]:
         """
-        Calculates the transmission spectrum.
+        Calculates the transmission radius.
+        """
+
+    @abstractmethod
+    def calc_transm_depth(self, **kwargs) -> Tuple[Quantity, npt.ArrayLike]:
+        """
+        Calculates the area fraction of the planet compared to the stellar disk (R_p^2/R_s^2, i.e.,
+        the dimming of the star during the transit).
         """
 
     @abstractmethod
@@ -91,7 +99,7 @@ class PostRadtransProtocol(Protocol):
         """
 
     @abstractmethod
-    def calc_fpfs(self, **kwargs) -> Tuple[Quantity, Quantity]:
+    def calc_fpfs(self, **kwargs) -> Tuple[Quantity, npt.ArrayLike]:
         """
         Secondary occultation depth.
 

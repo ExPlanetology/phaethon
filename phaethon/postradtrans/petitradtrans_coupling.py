@@ -114,7 +114,7 @@ def to_astropy_unit(value: float | int | Quantity, target_unit: Unit) -> Quantit
     Makes sure that a value is a astropy.units.Quantity of correct type.
     """
 
-    param_name: str = get_name_of_variable(value)
+    param_name: str | None = get_name_of_variable(value)
 
     # Correct type (python type)?
     if not isinstance(value, (float, int, Quantity)):
@@ -177,17 +177,17 @@ class PetitRadtransCoupler(PostRadtransProtocol):
     mmw_profile: np.ndarray
     __atmosphere_is_init: bool
 
-    wlen_bords_micron: list
+    wlen_bords_micron: Tuple[float | int, float | int]
     gas_continuum_contributors: list
     rayleigh_species: list
     additional_outputs: dict
 
-    star_spec_fit: Callable
+    star_spec_fit: Optional[Callable]
 
     def __init__(
         self,
         line_species: List[str],
-        wlen_bords_micron: Tuple[float, float],
+        wlen_bords_micron: Tuple[float| int, float | int],
         gas_continuum_contributors: Optional[List[str]] = None,
         rayleigh_species: Optional[List[str]] = None,
         **kwargs,

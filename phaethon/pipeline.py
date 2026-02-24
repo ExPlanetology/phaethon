@@ -17,7 +17,7 @@
 # along with Phaethon.  If not, see <https://www.gnu.org/licenses/>.
 #
 """
-The main pipeline that streamlines the computation of the structure of an outgassed atmosphere.
+Main pipeline, streamlines the computation of the structure of an outgassed atmosphere.
 """
 
 import importlib
@@ -53,7 +53,10 @@ from phaethon.logger import file_logger
 DEFAULT_PARAM_FILE = (
     importlib.resources.files("phaethon.data") / "standard_lavaplanet_params.dat"
 )
-""" Default HELIOS parameters, suitable for lava planets. """
+"""
+Default HELIOS parameters. Many of the default parameters will be overwritten by the pipeline
+below (mostly params related to planet, star and opacity species).
+"""
 
 
 class PhaethonPipeline:
@@ -71,20 +74,20 @@ class PhaethonPipeline:
     atmo: IdealGasMixture
 
     p_toa: float
-    p_boa: float
-    t_boa: float
-    t_melt: float
+    p_boa: Optional[float] # not set at init; changes during run.
+    t_boa: Optional[float] # not set at init; changes during run.
+    t_melt: float          # set at init, but changes during run.
 
     # solver
     _root_finder: PhaethonRootFinder
 
-    # HELIOS objects
-    _reader: read.Read
-    _keeper: quant.Store
-    _computer: comp.Compute
-    _writer: write.Write
-    _plotter: rt_plot.Plot
-    _fogger: clouds.Cloud
+    # HELIOS objects; optional since they are initially none, and only set by `_helios_setup`
+    _reader: Optional[read.Read]
+    _keeper: Optional[quant.Store]
+    _computer: Optional[comp.Compute]
+    _writer: Optional[write.Write]
+    _plotter: Optional[rt_plot.Plot]
+    _fogger: Optional[clouds.Cloud]
 
     # post-radtrans routine
     postradtrans: Optional[PostRadtransProtocol]
@@ -150,8 +153,8 @@ class PhaethonPipeline:
         self.atmo = IdealGasMixture.new_from_pressure({})
         self.p_toa = p_toa
         self.p_boa = None
-        self.t_boa = self.planetary_system.irrad_temp.to("K").value
-        self.t_melt = None
+        self.t_boa = None
+        self.t_melt = self.planetary_system.irrad_temp.to("K").value
 
         # solver
         self._root_finder = root_finder
@@ -252,16 +255,20 @@ class PhaethonPipeline:
         # Generate the file which lists opacity & scattering species; req. by HELIOS
         self._write_opacspecies_file()
 
-        # initialise HELIOS
-        self._helios_setup(param_file=param_file, nvcc_kws=nvcc_kws)
-
-        # Inital temperature of the melt, based on the irradiation temperature or constant input
+        # Inital temperature of the melt, based on the irradiation temperature or constant input.
+        # Do this every time `self.run()` is called, because `self.t_melt` gets overwritte during
+        # each iteration.
         self.t_melt = (
             self.planetary_system.irrad_temp.to("K").value
             if t_melt_init is None
             else t_melt_init
         )
-        assert self.t_melt > 0, Exception("self.t_melt must be > 0")
+        if self.t_melt <= 0:
+            logger.error(f"`t_melt` must be > 0, is {self.t_melt} K")
+            raise ValueError(f"`t_melt` must be > 0, is {self.t_melt} K")
+
+        # initialise HELIOS
+        self._helios_setup(param_file=param_file, nvcc_kws=nvcc_kws)
 
         # run the loop
         start: float = time.time()
@@ -390,12 +397,14 @@ class PhaethonPipeline:
         # Generate the file which lists opacity & scattering species; req. by HELIOS
         self._write_opacspecies_file()
 
-        # initialise HELIOS
-        self._helios_setup(param_file=param_file, nvcc_kws=nvcc_kws)
-
         # Inital temperature of the melt, based on the irradiation temperature or constant input
         self.t_melt = t_melt
-        assert self.t_melt > 0, Exception("self.t_melt must be > 0")
+        if self.t_melt <= 0:
+            logger.error(f"`t_melt` must be > 0, is {self.t_melt} K")
+            raise ValueError(f"`t_melt` must be > 0, is {self.t_melt} K")
+
+        # initialise HELIOS
+        self._helios_setup(param_file=param_file, nvcc_kws=nvcc_kws)
 
         # run the loop
         start: float = time.time()

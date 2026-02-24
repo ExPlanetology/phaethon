@@ -23,7 +23,7 @@ ratios, determining elemental fractions, producing a FastChem input file).
 
 from dataclasses import dataclass
 import logging
-from typing import Union, Optional, List, Type, TypeVar
+from typing import Union, Optional, List, Type, TypeVar, Self
 
 import numpy as np
 import pandas as pd
@@ -31,8 +31,6 @@ import scipy.constants as sc
 from molmass import Formula
 
 logger = logging.getLogger(__name__)
-
-T = TypeVar("T")
 
 
 def sanitise_formula(formula: str) -> str:
@@ -81,11 +79,11 @@ class IdealGasMixture:
 
     @classmethod
     def new_from_pressure(
-        cls: Type[T],
+        cls,
         p_bar: Union[dict, pd.Series],
         temperature: Optional[float] = np.nan,
         volume: Optional[float] = np.nan,
-    ) -> None:
+    ) -> Self:
         """
         Build gas mixture from partial pressure dict/series.
 
@@ -125,11 +123,11 @@ class IdealGasMixture:
 
     @classmethod
     def new_from_moles(
-        cls: Type[T],
+        cls,
         moles: Union[dict, pd.Series],
         temperature: Optional[float] = np.nan,
         volume: Optional[float] = np.nan,
-    ) -> None:
+    ) -> Self:
         """
         Build gas mixture from a dict/series of moles of input gases.
 
@@ -175,13 +173,13 @@ class IdealGasMixture:
 
     @classmethod
     def new_from_fastchem_inputfile(
-        cls: Type[T],
+        cls,
         input_file: str,
         reference_element: str,
         temperature: Optional[float] = np.nan,
         volume: Optional[float] = np.nan,
         total_moles: float = 1.0,
-    ) -> None:
+    ) -> Self:
         """
         Build gas mixture from a FastChem input file.
 

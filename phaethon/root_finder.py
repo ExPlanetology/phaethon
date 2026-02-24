@@ -138,7 +138,7 @@ class PhaethonRootFinder:
         t_init: float,
         *,
         max_iter: int,
-        tmelt_limits: Tuple[float],
+        tmelt_limits: Tuple[float |int, float | int],
         logger: Optional[logging.Logger] = None,
     ) -> None:
         """

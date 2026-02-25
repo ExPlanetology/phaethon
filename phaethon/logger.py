@@ -1,4 +1,4 @@
-# 
+#
 # Copyright 2024-2025 Fabian L. Seidler
 #
 # This file is part of Phaethon.
@@ -66,7 +66,7 @@ def debug_logger() -> logging.Logger:
 
 def file_logger(logfile: str = f"phaethon.log") -> logging.Logger:
     """Set up the logging to a file (info)"""
-    
+
     # File logger
     logger: logging.Logger = logging.getLogger()
     logger.setLevel(logging.INFO)

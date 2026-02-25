@@ -19,6 +19,7 @@
 """
 Utilities for phaethon
 """
+
 import functools
 from typing import Dict, Tuple
 from molmass import Formula
@@ -56,7 +57,7 @@ def formula_to_latex(formula: str) -> str:
     # extract formula; FastChem has suffixes to formulas which we want to avoid at this stage.
     suffix = None
     if "_" in formula:
-        (formula, suffix) = formula.split("_")
+        formula, suffix = formula.split("_")
     if formula.endswith("trans"):
         formula = formula[:-5]
         suffix = "trans"
@@ -64,15 +65,14 @@ def formula_to_latex(formula: str) -> str:
         formula = formula[:-4]
         suffix = "cis"
     if "(s)" in formula:
-        (formula, _) = formula.split("(s)")
+        formula, _ = formula.split("(s)")
         suffix = "s"
     if "(s,l)" in formula:
-        (formula, _) = formula.split("(s,l)")
+        formula, _ = formula.split("(s,l)")
         suffix = "s,l"
     if "(l)" in formula:
-        (formula, _) = formula.split("(l)")
+        formula, _ = formula.split("(l)")
         suffix = "l"
-
 
     # extract stoichiometry
     comp: Dict[str, Tuple[float, float, float]] = (

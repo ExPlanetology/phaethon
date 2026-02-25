@@ -20,6 +20,7 @@
 A root-finding function for phaethon that tries to minimize the number of steps taken during the
 search for the lowest ΔT.
 """
+
 from dataclasses import dataclass, field
 import logging
 from typing import Callable, List, Tuple, Optional, Dict, TYPE_CHECKING
@@ -29,6 +30,7 @@ from numpy.typing import ArrayLike
 import bayes_opt
 
 from phaethon.interfaces import IteratorProtocol
+
 if TYPE_CHECKING:
     from phaethon.pipeline import PhaethonPipeline
 
@@ -131,16 +133,16 @@ class MeltTemperatureIterator(IteratorProtocol):
 
     n_iter: int
     """ Number of iterations taken by the algorithm """
-   
-    delta_temp_abstol : float
+
+    delta_temp_abstol: float
     """ Absolute tolerance on ΔT = T_BOA - T_melt at the atmosphere-melt interface """
- 
+
     def __init__(
         self,
         *,
         delta_temp_abstol: float,
         max_iter: int,
-        tmelt_limits: Tuple[float |int, float | int],
+        tmelt_limits: Tuple[float | int, float | int],
     ) -> None:
         """
         Initialize the root-finder.
@@ -163,7 +165,12 @@ class MeltTemperatureIterator(IteratorProtocol):
         self.trace: List[TemperatureSet] = []
         self.n_iter = 0
 
-    def iterate(self, pipeline: PhaethonPipeline, logger:Optional[logging.Logger] = None, **kwargs) -> None:
+    def iterate(
+        self,
+        pipeline: PhaethonPipeline,
+        logger: Optional[logging.Logger] = None,
+        **kwargs,
+    ) -> None:
         """
         Solve for T_melt that satisfies T_melt - T_BOA = 0. The solution, if one is found, might
         not be unique. This function does not return anything, as it is only applied in `Phaethon`
@@ -181,14 +188,14 @@ class MeltTemperatureIterator(IteratorProtocol):
         self.n_iter: int = 0
         self.trace: List[TemperatureSet] = []
         self.t_init = pipeline.t_melt
-        
+
         # define function to optimize (rootfinder)
         def tboa_func(t_melt: float) -> float:
             pipeline._single_forward_iteration(t_melt=t_melt)
             return pipeline.t_boa
 
         while not converged:
-            logger.info("-"*15 + f"Iteration No. {self.n_iter}" + "-"*15)
+            logger.info("-" * 15 + f"Iteration No. {self.n_iter}" + "-" * 15)
             new_tmelt: float = self.suggest_new_tmelt()
 
             new_tboa: float = tboa_func(new_tmelt)
@@ -257,8 +264,8 @@ class MeltTemperatureIterator(IteratorProtocol):
 
     def _bayesian_suggest(self) -> float:
         """
-        Predict new value with a BayesianOptimizer, a last ditch effort to find an optimum. The 
-        Optimizer is set to be exploitive, i.e. tries to predict an optimum value even if the 
+        Predict new value with a BayesianOptimizer, a last ditch effort to find an optimum. The
+        Optimizer is set to be exploitive, i.e. tries to predict an optimum value even if the
         parameter space has not been fully explored yet. This bears the risk of converging to
         a non-optimal solution. TODO: Maybe its better to be explorative instead?
 
@@ -286,7 +293,7 @@ class MeltTemperatureIterator(IteratorProtocol):
         next_point: Dict[str, float] = self._bayesian_optimizer.suggest()
         return next_point["t_melt"]
 
-    #def _visualize(self, target_temp: Optional[float], n_samples: int = 1000) -> None:
+    # def _visualize(self, target_temp: Optional[float], n_samples: int = 1000) -> None:
     #    """
     #    Visualize the problem. Only for debugging purposes. Should not be used with computationally
     #    expensive functions!

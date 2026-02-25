@@ -46,7 +46,11 @@ from phaethon.celestial_objects import PlanetarySystem
 from phaethon.analyse import PhaethonResult
 from phaethon.fastchem.coupling import FastChemCoupler
 from phaethon.gas_mixture import IdealGasMixture
-from phaethon.interfaces import OutgassingProtocol,IteratorProtocol,  PostRadtransProtocol
+from phaethon.interfaces import (
+    OutgassingProtocol,
+    IteratorProtocol,
+    PostRadtransProtocol,
+)
 from phaethon.root_finder import MeltTemperatureIterator
 from phaethon.logger import file_logger
 
@@ -74,9 +78,9 @@ class PhaethonPipeline:
     atmo: IdealGasMixture
 
     p_toa: float
-    p_boa: Optional[float] # not set at init; changes during run.
-    t_boa: Optional[float] # not set at init; changes during run.
-    t_melt: float          # set at init, but changes during run.
+    p_boa: Optional[float]  # not set at init; changes during run.
+    t_boa: Optional[float]  # not set at init; changes during run.
+    t_melt: float  # set at init, but changes during run.
 
     # solver
     iterator: IteratorProtocol
@@ -213,7 +217,6 @@ class PhaethonPipeline:
         self,
         param_file: os.PathLike = DEFAULT_PARAM_FILE,
         *,
-        t_abstol: float = 10.0,
         t_melt_init: Optional[float] = None,
         nvcc_kws: Optional[dict] = None,
         logfile_name: str = "phaethon.log",

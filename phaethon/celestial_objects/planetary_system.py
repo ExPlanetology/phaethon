@@ -142,7 +142,6 @@ class PlanetarySystem:
             * star.t_eff.to("K") ** 4
         ) ** (0.25)
 
-
         # info on planetary system
         info = {
             "star": star.get_info(),

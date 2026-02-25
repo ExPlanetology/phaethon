@@ -381,7 +381,7 @@ class IdealGasMixture:
         """
         Write a fastchem input file.
 
-        If electrons are present in the input gas, they are only written if their abundance is 
+        If electrons are present in the input gas, they are only written if their abundance is
         positive. Reason: sometimes, calculations give negative and very small amounts of electrons
         that should be zero.
 
@@ -409,7 +409,7 @@ class IdealGasMixture:
             else:
                 xi[elem] = self.elem_molfrac[elem] / self.elem_molfrac[ref_elem]
 
-        # normalize to 10¹² reference element atomsrg 
+        # normalize to 10¹² reference element atomsrg
         log_n = np.log10(xi) + 12.0
 
         # write file

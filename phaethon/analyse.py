@@ -198,7 +198,9 @@ class PhaethonResult:
         self.orbit_params = params[r"orbit"]
 
         # backwards compatibiliy: 'outgassing' was called 'vapour_engine'
-        self.outgassing_params = params.get(r"outgassing", params.get(r"vapour_engine", None))
+        self.outgassing_params = params.get(
+            r"outgassing", params.get(r"vapour_engine", None)
+        )
 
         # ----------- stellar spectrum ------------#
         self.spectral_exitance_star = None
@@ -265,7 +267,9 @@ class PhaethonResult:
         )
 
     def get_photospheric_pressurelevel(
-        self, absorbed_frac: Optional[float]=None, smoothing_window_size: Optional[int] = None
+        self,
+        absorbed_frac: Optional[float] = None,
+        smoothing_window_size: Optional[int] = None,
     ) -> ArrayLike:
         """
         Photospheric pressure level as funcition of wavelength, defined by the integrated
@@ -301,14 +305,11 @@ class PhaethonResult:
                 abs(self.integrated_transmissivity - absorbed_frac), axis=1
             )
             photosphere: ArrayLike = self.pressure[1:][index_of_closest]
-        
+
         # use τ=1 as definition for photosphere
         else:
-            index_of_closest = np.argmin(
-                abs(self.optical_depth - 1.0), axis=1
-            )
+            index_of_closest = np.argmin(abs(self.optical_depth - 1.0), axis=1)
             photosphere: ArrayLike = self.pressure[1:][index_of_closest]
-
 
         # apply smoothing (optional)
         if smoothing_window_size is not None:
@@ -399,7 +400,9 @@ class PhaethonResult:
         self,
         pl_radius: Optional[Union[float, int, AstropyUnit]] = None,
         st_radius: Optional[Union[float, int, AstropyUnit]] = None,
-        method: Literal["photosphere", "p", "contribution", "c", "TOA", "toa"] = "photosphere",
+        method: Literal[
+            "photosphere", "p", "contribution", "c", "TOA", "toa"
+        ] = "photosphere",
     ) -> ArrayLike:
         """
         Calculates the secondary eclipse depth (planet-to-star flux ratio, fpfs, Fp/Fs, ...) based
@@ -525,7 +528,16 @@ class PhaethonResult:
     def planet_spectral_flux(
         self,
         pl_radius: Optional[Union[float, int, AstropyUnit]] = None,
-        method: Literal["photosphere", "p", "contribution", "c", "toa", "TOA", "constant radius", "r"] = "photosphere",
+        method: Literal[
+            "photosphere",
+            "p",
+            "contribution",
+            "c",
+            "toa",
+            "TOA",
+            "constant radius",
+            "r",
+        ] = "photosphere",
     ) -> ArrayLike:
         """
         Calculates the emitted flux of the planet. WARNING: Assumes a homogeneous temperature
@@ -581,12 +593,10 @@ class PhaethonResult:
         elif method in ["toa", "TOA"]:
             _toa_radius = _pl_radius.to("cm") + self.altitude[-1].to("cm")
 
-            spectral_flux = (
-                4 * np.pi * _toa_radius**2 * self.spectral_exitance_planet
-            )
+            spectral_flux = 4 * np.pi * _toa_radius**2 * self.spectral_exitance_planet
         elif method in ["constant radius", "r"]:
             spectral_flux = (
-                4 * np.pi * _pl_radius.to("cm")**2 * self.spectral_exitance_planet
+                4 * np.pi * _pl_radius.to("cm") ** 2 * self.spectral_exitance_planet
             )
         else:
             raise ValueError(f"unknown method '{method}'")

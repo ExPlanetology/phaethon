@@ -187,7 +187,7 @@ class PetitRadtransCoupler(PostRadtransProtocol):
     def __init__(
         self,
         line_species: List[str],
-        wlen_bords_micron: Tuple[float| int, float | int],
+        wlen_bords_micron: Tuple[float | int, float | int],
         gas_continuum_contributors: Optional[List[str]] = None,
         rayleigh_species: Optional[List[str]] = None,
         **kwargs,

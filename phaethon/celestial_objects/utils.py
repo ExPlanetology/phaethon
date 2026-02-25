@@ -33,7 +33,6 @@ from astropy.units.core import Unit as AstropyUnit
 from astropy.units.quantity import Quantity as AstropyQuantity
 from astropy.modeling.models import BlackBody
 
-
 logger = logging.getLogger(__name__)
 
 

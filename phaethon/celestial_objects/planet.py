@@ -40,9 +40,8 @@ from astropy.modeling.models import BlackBody
 
 from helios.star_tool.functions import main_loop as startool_mainloop
 
-#phaethon
+# phaethon
 from phaethon.celestial_objects.utils import verify_type
-
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +64,9 @@ class Planet:
         self.mass = verify_type(self.mass, target_unit=units.M_earth)
         self.radius = verify_type(self.radius, target_unit=units.R_earth)
         self.grav = const.G * self.mass.to("kg") / (self.radius.to("m") ** 2)
-        self.internal_temperature = verify_type(self.internal_temperature, target_unit=units.K)
+        self.internal_temperature = verify_type(
+            self.internal_temperature, target_unit=units.K
+        )
 
     def get_info(self) -> dict:
         info_dict = self.__dict__.copy()

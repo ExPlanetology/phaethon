@@ -29,6 +29,7 @@ import numpy.typing as npt
 
 from phaethon.analyse import PhaethonResult
 from phaethon.gas_mixture import IdealGasMixture
+
 if TYPE_CHECKING:
     from phaethon.pipeline import PhaethonPipeline
 
@@ -47,15 +48,22 @@ class OutgassingProtocol(Protocol):
     def equilibriate(self, temperature: float) -> IdealGasMixture:
         """Equilibrate chemistry at the magma-ocean atmosphere interface"""
 
+
 class IteratorProtocol(Protocol):
     """
     Guides the pipeline to convergence, i.e., the fully equilibrated atmosphere.
     """
 
-    def iterate(self, pipeline: PhaethonPipeline, logger: Optional[logging.Logger] = None, **kwargs) -> None:
+    def iterate(
+        self,
+        pipeline: PhaethonPipeline,
+        logger: Optional[logging.Logger] = None,
+        **kwargs
+    ) -> None:
         """
         Iterates the atmosphere to convergence.
         """
+
 
 class PostRadtransProtocol(Protocol):
     """

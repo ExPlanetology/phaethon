@@ -46,8 +46,8 @@ from phaethon.celestial_objects import PlanetarySystem
 from phaethon.analyse import PhaethonResult
 from phaethon.fastchem.coupling import FastChemCoupler
 from phaethon.gas_mixture import IdealGasMixture
-from phaethon.interfaces import OutgassingProtocol, PostRadtransProtocol
-from phaethon.root_finder import PhaethonRootFinder
+from phaethon.interfaces import OutgassingProtocol,IteratorProtocol,  PostRadtransProtocol
+from phaethon.root_finder import MeltTemperatureIterator
 from phaethon.logger import file_logger
 
 DEFAULT_PARAM_FILE = (
@@ -79,7 +79,7 @@ class PhaethonPipeline:
     t_melt: float          # set at init, but changes during run.
 
     # solver
-    _root_finder: PhaethonRootFinder
+    iterator: IteratorProtocol
 
     # HELIOS objects; optional since they are initially none, and only set by `_helios_setup`
     _reader: Optional[read.Read]
@@ -102,10 +102,8 @@ class PhaethonPipeline:
         scatterers: set,
         opacity_path: str,
         p_toa: float = 1e-8,
-        root_finder: PhaethonRootFinder = PhaethonRootFinder(
-            tboa_func=None,
-            delta_temp_abstol=None,
-            t_init=None,
+        iterator: IteratorProtocol = MeltTemperatureIterator(
+            delta_temp_abstol=10,
             max_iter=15,
             tmelt_limits=(10.0, 10000.0),
         ),
@@ -156,7 +154,7 @@ class PhaethonPipeline:
         self.t_melt = self.planetary_system.irrad_temp.to("K").value
 
         # solver
-        self._root_finder = root_finder
+        self.iterator = iterator
 
         # HELIOS objects
         self._reader = None
@@ -274,19 +272,8 @@ class PhaethonPipeline:
         logger.info(f"Starting temperature (melt): {self.t_melt} K")
 
         try:
-            # define function to optimize (rootfinder)
-            def tboa_func(t_melt: float) -> float:
-                self._single_forward_iteration(t_melt=t_melt)
-                return self.t_boa
-
-            # update root finder params
-            self._root_finder.tboa_func = tboa_func
-            self._root_finder.delta_temp_abstol = t_abstol
-            self._root_finder.t_init = self.t_melt
-            self._root_finder.logger = logger
-
-            # solve for t_melt; this computes the equilibrated atmospheric P-T-profile.
-            self._root_finder.solve()
+            # solve for convergence
+            self.iterator.iterate(pipeline=self, logger=logger)
 
             # store output and metadata
             self._write_helios_output()

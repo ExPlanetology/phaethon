@@ -22,11 +22,15 @@ search for the lowest ΔT.
 """
 from dataclasses import dataclass, field
 import logging
-from typing import Callable, List, Tuple, Optional, Dict
+from typing import Callable, List, Tuple, Optional, Dict, TYPE_CHECKING
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import ArrayLike
 import bayes_opt
+
+from phaethon.interfaces import IteratorProtocol
+if TYPE_CHECKING:
+    from phaethon.pipeline import PhaethonPipeline
 
 
 @dataclass
@@ -76,7 +80,7 @@ def find_closest_bounding_values(
     return (closest_ts, closets_opposite_sign_ts)
 
 
-def find_root_of_linear(x: TemperatureSet, y: TemperatureSet) -> float:
+def find_root_of_linear(x: TemperatureSet, y: TemperatureSet) -> Optional[float]:
     """
     Determines the `tmelt` where a linear function, defined by two TemperatureSets (pairs of
     `tmelt` and `delta_tmelt` values) has a root. If no root exists (i.e., function is constant),
@@ -113,7 +117,7 @@ class PhaethonConvergenceError(Exception):
         )
 
 
-class PhaethonRootFinder:
+class MeltTemperatureIterator(IteratorProtocol):
     """
     Root-finder for the equilibrium ocean temperature, which depends in the atmospheric opacity (
     which, in turn, is a function of the outgassed vapour). The assumptions made here are too
@@ -127,66 +131,73 @@ class PhaethonRootFinder:
 
     n_iter: int
     """ Number of iterations taken by the algorithm """
-
-    logger: logging.Logger
-    """ Logger """
-
+   
+    delta_temp_abstol : float
+    """ Absolute tolerance on ΔT = T_BOA - T_melt at the atmosphere-melt interface """
+ 
     def __init__(
         self,
-        tboa_func: Callable,
-        delta_temp_abstol: float,
-        t_init: float,
         *,
+        delta_temp_abstol: float,
         max_iter: int,
         tmelt_limits: Tuple[float |int, float | int],
-        logger: Optional[logging.Logger] = None,
     ) -> None:
         """
         Initialize the root-finder.
 
         Parametes
         ---------
-            tboa_func : Callable
-                Function for ΔT := T_BOA - T_melt
             delta_temp_abstol : float
                 Tolerance on ΔT.
-            t_init : float
-                Initial temperature.
             max_iter : int
                 Maximum number of iterations allowed. If reached, an error will be yeeted.
+            tmelt_limits: Tuple[float | int, float | int]
+                Lower and upper bound on the melt temperature.
         """
 
-        self.tboa_func = tboa_func
         self.max_iter = max_iter
+        self.delta_temp_abstol = delta_temp_abstol
+        self.tmelt_limits = tmelt_limits
+
+        self._bayesian_optimizer = None
         self.trace: List[TemperatureSet] = []
         self.n_iter = 0
-        self.delta_temp_abstol = delta_temp_abstol
-        self.t_init = t_init
-        self.tmelt_limits = tmelt_limits
-        self._bayesian_optimizer = None
-        self.logger = logger
 
-    def solve(self) -> None:
+    def iterate(self, pipeline: PhaethonPipeline, logger:Optional[logging.Logger] = None, **kwargs) -> None:
         """
         Solve for T_melt that satisfies T_melt - T_BOA = 0. The solution, if one is found, might
         not be unique. This function does not return anything, as it is only applied in `Phaethon`
         where it directly modifies its internal state.
+
+        Parameters
+        ----------
+            pipeline : PhaethonPipeline
+                Pipeline in which iterator should equilibrate the atmosphere.
+            logger : Logger (optional)
+                The logger into which logging messages are written.
         """
 
         converged: bool = False
         self.n_iter: int = 0
         self.trace: List[TemperatureSet] = []
+        self.t_init = pipeline.t_melt
+        
+        # define function to optimize (rootfinder)
+        def tboa_func(t_melt: float) -> float:
+            pipeline._single_forward_iteration(t_melt=t_melt)
+            return pipeline.t_boa
 
         while not converged:
-            new_tmelt: float = self.suggest()
+            logger.info("-"*15 + f"Iteration No. {self.n_iter}" + "-"*15)
+            new_tmelt: float = self.suggest_new_tmelt()
 
-            new_tboa: float = self.tboa_func(new_tmelt)
+            new_tboa: float = tboa_func(new_tmelt)
             new_delta_tmelt: float = new_tboa - new_tmelt
 
-            if self.logger is not None:
-                self.logger.info(f"t_melt: {round(new_tmelt, 2)} K")
-                self.logger.info(f"t_boa: {round(new_tboa, 2)} K")
-                self.logger.info(f"-> ΔT: {round(new_delta_tmelt, 2)} K")
+            if logger is not None:
+                logger.info(f"t_melt: {round(new_tmelt, 2)} K")
+                logger.info(f"t_boa: {round(new_tboa, 2)} K")
+                logger.info(f"-> ΔT: {round(new_delta_tmelt, 2)} K")
 
             self.trace.append(
                 TemperatureSet(tmelt=new_tmelt, delta_tmelt=new_delta_tmelt)
@@ -199,7 +210,7 @@ class PhaethonRootFinder:
             if self.n_iter == self.max_iter and not converged:
                 raise PhaethonConvergenceError()
 
-    def suggest(self) -> float:
+    def suggest_new_tmelt(self) -> float:
         """
         Suggest a new melt temperature.
         """
@@ -275,42 +286,42 @@ class PhaethonRootFinder:
         next_point: Dict[str, float] = self._bayesian_optimizer.suggest()
         return next_point["t_melt"]
 
-    def _visualize(self, target_temp: Optional[float], n_samples: int = 1000) -> None:
-        """
-        Visualize the problem. Only for debugging purposes. Should not be used with computationally
-        expensive functions!
-        """
+    #def _visualize(self, target_temp: Optional[float], n_samples: int = 1000) -> None:
+    #    """
+    #    Visualize the problem. Only for debugging purposes. Should not be used with computationally
+    #    expensive functions!
+    #    """
 
-        t_arr = np.linspace(min(self.tmelt_limits), max(self.tmelt_limits), n_samples)
+    #    t_arr = np.linspace(min(self.tmelt_limits), max(self.tmelt_limits), n_samples)
 
-        fig, (ax_t, ax_dt) = plt.subplots(2, 1, height_ratios=[1, 0.4])
+    #    fig, (ax_t, ax_dt) = plt.subplots(2, 1, height_ratios=[1, 0.4])
 
-        # plot function itself
-        func_eval_arr = [self.tboa_func(t_melt) for t_melt in t_arr]
-        ax_t.plot(t_arr, func_eval_arr, zorder=0)
-        ax_dt.plot(t_arr, func_eval_arr - t_arr, zorder=0)  # ΔT
+    #    # plot function itself
+    #    func_eval_arr = [self.tboa_func(t_melt) for t_melt in t_arr]
+    #    ax_t.plot(t_arr, func_eval_arr, zorder=0)
+    #    ax_dt.plot(t_arr, func_eval_arr - t_arr, zorder=0)  # ΔT
 
-        # plot function evaluations
-        x_points = [ts.tmelt for ts in self.trace]
-        y_points = [ts.tboa for ts in self.trace]
-        z_points = [ts.delta_tmelt for ts in self.trace]
-        n_iter_arr = np.arange(1, self.n_iter + 1)
-        cs = ax_t.scatter(x_points, y_points, marker="o", c=n_iter_arr, edgecolors="k")
-        ax_dt.scatter(x_points, z_points, marker="o", c=n_iter_arr, edgecolors="k")
-        plt.colorbar(cs)
+    #    # plot function evaluations
+    #    x_points = [ts.tmelt for ts in self.trace]
+    #    y_points = [ts.tboa for ts in self.trace]
+    #    z_points = [ts.delta_tmelt for ts in self.trace]
+    #    n_iter_arr = np.arange(1, self.n_iter + 1)
+    #    cs = ax_t.scatter(x_points, y_points, marker="o", c=n_iter_arr, edgecolors="k")
+    #    ax_dt.scatter(x_points, z_points, marker="o", c=n_iter_arr, edgecolors="k")
+    #    plt.colorbar(cs)
 
-        if target_temp is not None:
-            ax_t.plot(t_arr, t_arr, color="lightgrey", zorder=-2, label="target value")
-            ax_t.scatter(target_temp, target_temp, marker="x", color="red", zorder=1)
+    #    if target_temp is not None:
+    #        ax_t.plot(t_arr, t_arr, color="lightgrey", zorder=-2, label="target value")
+    #        ax_t.scatter(target_temp, target_temp, marker="x", color="red", zorder=1)
 
-            ax_dt.axhline(0.0, color="lightgrey", zorder=-2, label="target value")
-            ax_dt.scatter(target_temp, 0.0, marker="x", color="red", zorder=1)
+    #        ax_dt.axhline(0.0, color="lightgrey", zorder=-2, label="target value")
+    #        ax_dt.scatter(target_temp, 0.0, marker="x", color="red", zorder=1)
 
-        # cosmetic
-        ax_dt.set_xlabel(r"$T_{melt}$ [K]")
-        ax_t.set_ylabel(r"$T_{BOA}$ [K]")
-        ax_t.set(ylim=[np.amin(func_eval_arr) * 0.9, np.amax(func_eval_arr) * 1.1])
-        ax_dt.set_ylabel(r"$\Delta T$ [K]")
+    #    # cosmetic
+    #    ax_dt.set_xlabel(r"$T_{melt}$ [K]")
+    #    ax_t.set_ylabel(r"$T_{BOA}$ [K]")
+    #    ax_t.set(ylim=[np.amin(func_eval_arr) * 0.9, np.amax(func_eval_arr) * 1.1])
+    #    ax_dt.set_ylabel(r"$\Delta T$ [K]")
 
-        fig.tight_layout()
-        plt.show()
+    #    fig.tight_layout()
+    #    plt.show()

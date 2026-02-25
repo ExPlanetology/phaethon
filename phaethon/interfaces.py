@@ -23,14 +23,14 @@ Interface types for variable objects, namely outgassing and post-processing radi
 
 import logging
 from abc import abstractmethod
-from typing import Protocol, Tuple
+from typing import Protocol, Optional, Tuple, TYPE_CHECKING
 from astropy.units import Quantity
 import numpy.typing as npt
 
 from phaethon.analyse import PhaethonResult
 from phaethon.gas_mixture import IdealGasMixture
-
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from phaethon.pipeline import PhaethonPipeline
 
 
 class OutgassingProtocol(Protocol):
@@ -47,6 +47,15 @@ class OutgassingProtocol(Protocol):
     def equilibriate(self, temperature: float) -> IdealGasMixture:
         """Equilibrate chemistry at the magma-ocean atmosphere interface"""
 
+class IteratorProtocol(Protocol):
+    """
+    Guides the pipeline to convergence, i.e., the fully equilibrated atmosphere.
+    """
+
+    def iterate(self, pipeline: PhaethonPipeline, logger: Optional[logging.Logger] = None, **kwargs) -> None:
+        """
+        Iterates the atmosphere to convergence.
+        """
 
 class PostRadtransProtocol(Protocol):
     """

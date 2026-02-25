@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 from labellines import labelLines
 import numpy as np
-from phaethon.root_finder import PhaethonRootFinder, PhaethonConvergenceError, find_closest_bounding_values, find_root_of_linear
+from phaethon.root_finder import MeltTemperatureIterator, PhaethonConvergenceError, find_closest_bounding_values, find_root_of_linear
 
 def test_simple_linear():
 
@@ -12,7 +12,7 @@ def test_simple_linear():
     def tboa_func(tmelt: float) -> float:
         return t_correct + dt_at_zero - dt_at_zero / t_correct * tmelt
 
-    root_finder = PhaethonRootFinder(
+    root_finder = MeltTemperatureIterator(
         tboa_func=tboa_func,
         delta_temp_abstol=tmelt_abstol,
         t_init=2000.,
@@ -33,7 +33,7 @@ def test_wedge():
     def tboa_func(tmelt: float) -> float:
         return t_correct + abs(dt_at_zero - dt_at_zero / t_correct * tmelt)
 
-    root_finder = PhaethonRootFinder(
+    root_finder = MeltTemperatureIterator(
         tboa_func=tboa_func,
         delta_temp_abstol=tmelt_abstol,
         t_init=2000.,
@@ -55,7 +55,7 @@ def test_parabola():
     def tboa_func(tmelt: float) -> float:
         return tmelt + 1e-3 * (tmelt - t_correct)**2
 
-    root_finder = PhaethonRootFinder(
+    root_finder = MeltTemperatureIterator(
         tboa_func=tboa_func,
         delta_temp_abstol=tmelt_abstol,
         t_init=2000.,
@@ -78,7 +78,7 @@ def test_ushape():
             return tmelt + plateu_value / (width_of_well**2) * (tmelt - t_correct)**2
         return tmelt + plateu_value
 
-    root_finder = PhaethonRootFinder(
+    root_finder = MeltTemperatureIterator(
         tboa_func=tboa_func,
         delta_temp_abstol=tmelt_abstol,
         t_init=1930.,
@@ -98,7 +98,7 @@ def test_failure():
         return t_correct * 2
 
 
-    root_finder = PhaethonRootFinder(
+    root_finder = MeltTemperatureIterator(
         tboa_func=tboa_func,
         delta_temp_abstol=tmelt_abstol,
         t_init=2000.,

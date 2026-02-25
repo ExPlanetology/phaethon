@@ -84,7 +84,7 @@ class PlanetarySystem:
     """ Returns the semi-major axis of the planet. """
     period: AstropyQuantity
     """ Returns the period of the planet. """
-    irrad_temp: float
+    irrad_temp: AstropyQuantity
     """ Irradiation temperature at position of the orbit. """
     info: Dict[str, Union[float, Dict[str, Union[str, float]]]]
     """ Information about orbit and energy budget, as a string."""

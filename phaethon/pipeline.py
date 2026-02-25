@@ -120,6 +120,8 @@ class PhaethonPipeline:
             The planetary system to be modeled.
         outgassing : OutgassingProtocol
             The engine responsible for handling vaporization/outgassing processes.
+        fastchem_coupler : FastChemCoupler
+            Interface to FastChem.
         outdir : str
             The directory where output files will be stored.
         opac_species : set
@@ -128,16 +130,13 @@ class PhaethonPipeline:
             A set of scatterer species included in the model.
         opacity_path : str
             Path to the opacity data files.
-        path_to_eqconst : Optional[str], optional
-            Path to the equilibrium constant data files. Default is None.
         p_toa : float, optional
             Total atmospheric pressure at the top of the atmosphere (in bar). Default is 1e-8.
-        p_grid_fastchem : np.ndarray, optional
-            Pressure grid for fast chemistry calculations. Default is a logarithmic space from 1e-8
-            to 1e3.
-        t_grid_fastchem : np.ndarray, optional
-            Temperature grid for fast chemistry calculations. Default is a linear space from 500 to
-            6000 K.
+        root_finder : PhaethonRootfinder
+            Iterator that converges atmosphere and melt temperatures.
+        postradtrans : Optional[PostRadtransProtocol]
+            A post-radtrans protocol to compute transmission (and emission spectra) from the final
+            (fully equilibrated) atmospheric profile provided by HELIOS. Default is None.
         """
 
         if not outdir.endswith("/"):

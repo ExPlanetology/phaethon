@@ -20,8 +20,9 @@ matplotlib = "^3.9.2"
 matplotlib-label-lines = "^0.7.0"
 h5py = "^3.12.1"
 tqdm = "^4.66.5"
-pyqt5 = "*"
 dotenv = "*"
+cmcramier = "*"
+petitRADTRANS = "*"
 
 [tool.poetry.group.test.dependencies]
 pytest = "^7.4.4"

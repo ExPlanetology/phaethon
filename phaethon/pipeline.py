@@ -19,7 +19,6 @@
 """
 Main pipeline, streamlines the computation of the structure of an outgassed atmosphere.
 """
-
 import importlib
 import traceback
 import sys
@@ -30,6 +29,7 @@ import time
 from typing import Optional, Literal, Dict, Union
 import numpy as np
 import pandas as pd
+from copy import deepcopy
 
 # ----- HELIOS imports -----#
 from helios import additional_heating as add_heat
@@ -51,7 +51,7 @@ from phaethon.interfaces import (
     IteratorProtocol,
     PostRadtransProtocol,
 )
-from phaethon.root_finder import MeltTemperatureIterator
+from phaethon.iterator import MeltTemperatureIterator, SingleIteration
 from phaethon.logger import file_logger
 
 DEFAULT_PARAM_FILE = (
@@ -121,7 +121,8 @@ class PhaethonPipeline:
         planetary_system : PlanetarySystem
             The planetary system to be modeled.
         outgassing : OutgassingProtocol
-            The engine responsible for handling vaporization/outgassing processes.
+            Outgassing/vaporization processes; supplies the bulk elemental chemistry of the
+            atmosphere.
         fastchem_coupler : FastChemCoupler
             Interface to FastChem.
         outdir : str
@@ -134,8 +135,8 @@ class PhaethonPipeline:
             Path to the opacity data files.
         p_toa : float, optional
             Total atmospheric pressure at the top of the atmosphere (in bar). Default is 1e-8.
-        root_finder : PhaethonRootfinder
-            Iterator that converges atmosphere and melt temperatures.
+        iterator : IteratorProtocol
+            Iterator that converges atmosphere and melt. Default is `MeltTemperatureIterator`.
         postradtrans : Optional[PostRadtransProtocol]
             A post-radtrans protocol to compute transmission (and emission spectra) from the final
             (fully equilibrated) atmospheric profile provided by HELIOS. Default is None.
@@ -371,63 +372,16 @@ class PhaethonPipeline:
                 Name of the logfile, placed in the output directory. Default is "phaethon.log".
         """
 
-        if nvcc_kws is None:
-            nvcc_kws = {}
+        # store iterator so that it can be reset after
+        old_iterator = deepcopy(self.iterator)
 
-        # create outdir
-        os.makedirs(self.outdir, exist_ok=True)
+        # set new iterator
+        self.iterator = SingleIteration()
+        self.run(param_file, t_melt_init=t_melt, nvcc_kws=nvcc_kws, logfile_name=logfile_name)
 
-        # init logger
-        logger = file_logger(logfile=self.outdir + logfile_name)
+        # reset iterator
+        self.iterator = old_iterator
 
-        # Write an initial metadata file
-        self.info_dump()
-
-        # Generate the file which lists opacity & scattering species; req. by HELIOS
-        self._write_opacspecies_file()
-
-        # Inital temperature of the melt, based on the irradiation temperature or constant input
-        self.t_melt = t_melt
-        if self.t_melt <= 0:
-            logger.error(f"`t_melt` must be > 0, is {self.t_melt} K")
-            raise ValueError(f"`t_melt` must be > 0, is {self.t_melt} K")
-
-        # initialise HELIOS
-        self._helios_setup(param_file=param_file, nvcc_kws=nvcc_kws)
-
-        # run the loop
-        start: float = time.time()
-        logger.info(f"Starting temperature (melt): {self.t_melt} K")
-
-        try:
-            self._single_forward_iteration(t_melt=self.t_melt)
-
-            # store output and metadata
-            self._write_helios_output()
-            self.info_dump()
-
-            # final fastchem run, generate atmospheric abundance profiles
-            self._final_fastchem_run()
-
-            end: float = time.time()
-            logger.info(f"Finished. Duration: {(end - start) / 60.} min")
-
-        # log error, just in case
-        except Exception:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            traceback_details = traceback.format_exception(
-                exc_type, exc_value, exc_traceback
-            )
-            logger.error("".join(traceback_details))
-            raise Exception(
-                f'An error occured: "{exc_value}". For more information, consult the '
-                + f"logfile at {self.outdir + logfile_name}"
-            )
-
-        # clear cached helios data, because they can occupy large amounts of memory
-        finally:
-            self._wipe_helios_memory(nvcc_kws=nvcc_kws)
-            logger.info("HELIOS memory wiped")
 
     # ============================================================================================
     # SEMI-PRIVATE METHODS

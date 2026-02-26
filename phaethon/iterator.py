@@ -119,6 +119,22 @@ class PhaethonConvergenceError(Exception):
         )
 
 
+class SingleIteration(IteratorProtocol):
+    """
+    Calls the forward model (outgassing -> fastchem -> HELIOS -> postradtrans) only once. Does not
+    equilibrate the atmospheric profile with the underlying melt.
+    """
+
+    def iterate(
+        self,
+        pipeline: PhaethonPipeline,
+        logger: Optional[logging.Logger] = None,
+        **kwargs,
+    ) -> None:
+        logger.info("Single iteration mode")
+        pipeline._single_forward_iteration(pipeline.t_melt)
+    
+
 class MeltTemperatureIterator(IteratorProtocol):
     """
     Root-finder for the equilibrium ocean temperature, which depends in the atmospheric opacity (

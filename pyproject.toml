@@ -21,7 +21,7 @@ matplotlib-label-lines = "^0.7.0"
 h5py = "^3.12.1"
 tqdm = "^4.66.5"
 dotenv = "*"
-cmcramier = "*"
+cmcrameri = "*"
 petitRADTRANS = "*"
 
 [tool.poetry.group.test.dependencies]

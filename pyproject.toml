@@ -6,23 +6,17 @@ authors = ["Fabian L. Seidler <fabian.seidler@eaps.ethz.ch>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.10"
-astropy = "*"
-pycuda = "*"
-helios = { git = "git@github.com:ExPlanetology/HELIOS.git" }
-pyfastchem = { git = "git@github.com:ExPlanetology/FastChem.git"}
 bayesian_optimization = "^2.0.3"
-numpy = "*"
-pandas = "*"
-scipy = "*"
-molmass = "*"
+cmcrameri = "1.8"
+helios = { git = "git@github.com:ExPlanetology/HELIOS.git" } # HELIOS already comes with many
+# dependencies on which phaethon also relies: astropy, numpy, scipy.
 matplotlib = "^3.9.2"
 matplotlib-label-lines = "^0.7.0"
-h5py = "^3.12.1"
-tqdm = "^4.66.5"
-dotenv = "*"
-cmcrameri = "*"
+molmass = "*"
+pandas = "*"
 petitRADTRANS = "*"
+pyfastchem = { git = "git@github.com:ExPlanetology/FastChem.git"}
+tqdm = "^4.66.5"
 
 [tool.poetry.group.test.dependencies]
 pytest = "^7.4.4"

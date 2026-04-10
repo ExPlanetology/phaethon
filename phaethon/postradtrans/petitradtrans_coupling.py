@@ -24,7 +24,7 @@ by HELIOS/phaethon.
 from io import StringIO
 import sys
 from contextlib import contextmanager
-from typing import Union, Callable, Optional, List, Tuple, Self
+from typing import Union, Callable, Optional, List, Tuple, Self, Literal
 from dataclasses import dataclass
 import warnings
 import logging
@@ -42,6 +42,7 @@ import numpy.typing as npt
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.stellar_spectra.phoenix import PhoenixStarTable
+from petitRADTRANS.plotlib import plot_opacity_contributions
 
 from phaethon.analyse import PhaethonResult
 from phaethon.interfaces import PostRadtransProtocol
@@ -289,7 +290,7 @@ class PetitRadtransCoupler(PostRadtransProtocol):
                 self.phaethon_result.chem[specimen.fastchem_name]
                 * specimen.atom_mass
                 / self.phaethon_result.chem["m(u)"].to_numpy()[::-1]
-            )
+            ).to_numpy()
         self.mmw_profile = self.phaethon_result.chem["m(u)"].to_numpy()[::-1]
 
         # update pressure profile; unfortunately, this means we have to overwrite _pressure,
@@ -626,3 +627,74 @@ class PetitRadtransCoupler(PostRadtransProtocol):
         transm_area_frac = transm_area_frac.decompose()
 
         return wavl, transm_area_frac
+
+    def plot_opacity_contribution(
+        self,
+        mode: Literal["transmission", "emission"] = "transmission",
+        pl_radius: Optional[Union[float, int, Quantity]] = None,
+        pl_mass: Optional[Union[float, int, Quantity]] = None,
+        reference_pressure: Optional[float, int, Quantity] = None,
+        **kwargs,
+    ):
+        r"""
+        Plot opacity species contribution
+
+        Parameters
+        ----------
+            pl_radius : float
+                Radius of planet. If not 'astropy.units.Quantity', assume Earth-radius.
+            pl_mass : float
+                Mass of planet. If not 'astropy.units.Quantity', assume Earth-mass.
+            reference_pressure : float
+                Pressure where the planet has radius `pl_radius`. If not 'astropy.units.Quantity',
+                assume bar.
+            **kwargs:
+                Keywords passed to petitRADTRANS.radtrans.calculate_transit_radii().
+        """
+
+        self.__is_atmosphere_init()
+
+        # reference pressure (where the radius of the planet is computed)
+        _ref_pressure: Quantity = to_astropy_unit(
+            (
+                reference_pressure
+                if reference_pressure is not None
+                else self.p_profile[-1] * units.bar
+            ),
+            target_unit=units.bar,
+        )
+
+        # planet radius
+        _planet_radius: Quantity = to_astropy_unit(
+            (
+                pl_radius
+                if pl_radius is not None
+                else self.phaethon_result.planet_params["radius"] * units.R_earth
+            ),
+            target_unit=units.R_earth,
+        )
+
+        # planet mass
+        _planet_mass: Quantity = to_astropy_unit(
+            (
+                pl_mass
+                if pl_mass is not None
+                else self.phaethon_result.planet_params["mass"] * units.M_earth
+            ),
+            target_unit=units.M_earth,
+        )
+
+        # "surface" gravity (i.e., gravitational acceleration at reference pressure)
+        _reference_gravity = (ac.G * _planet_mass / (_planet_radius**2)).decompose()
+
+        plot_opacity_contributions(
+            self.radtrans,
+            mode=mode,
+            mass_fractions=self.massfrac_profiles,
+            mean_molar_masses=self.mmw_profile,
+            reference_gravity=_reference_gravity.to("cm / s2").value,
+            planet_radius=_planet_radius.to("cm").value,
+            reference_pressure=_ref_pressure.to("bar").value,
+            temperatures=self.t_profile,
+            **kwargs,
+        )

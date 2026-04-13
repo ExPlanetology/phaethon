@@ -79,6 +79,15 @@ class PhaethonResult:
     condensates: List[str] = field(init=False)
     elem_condfrac: pd.DataFrame = field(init=False)
 
+    # opacity
+    transmissivity: ArrayLike = field(init=False)
+    integrated_transmissivity: ArrayLike = field(init=False)
+    optical_depth: ArrayLike = field(init=False)
+    contribution: np.ndarray = field(init=False)
+    cummulative_contrib: np.ndarray = field(init=False)
+    norm_contrib_per_wavebin: np.ndarray = field(init=False)
+    rosseland_mean_opacities: np.ndarray = field(init=False)
+    
     # spectra
     wavl: ArrayLike = field(init=False)
     spectral_exitance_planet: ArrayLike = field(init=False)
@@ -86,12 +95,7 @@ class PhaethonResult:
     t_bright: ArrayLike = field(init=False)
     spectral_exitance_star: ArrayLike = field(init=False)
     star_wavl: ArrayLike = field(init=False)
-    transmissivity: ArrayLike = field(init=False)
-    integrated_transmissivity: ArrayLike = field(init=False)
-    optical_depth: ArrayLike = field(init=False)
-    contribution: np.ndarray = field(init=False)
-    cummulative_contrib: np.ndarray = field(init=False)
-    norm_contrib_per_wavebin: np.ndarray = field(init=False)
+
 
     def __post_init__(self) -> None:
         """
@@ -265,6 +269,57 @@ class PhaethonResult:
         self.cummulative_contrib = np.flip(
             np.cumsum(np.flip(self.contribution), axis=1)
         )
+
+        # ----------- Rosseland mean opacities ------------- #
+        # TODO: units!
+        pd.options.mode.chained_assignment = None  # default='warn'; avoid warnings when renaming 
+        helios_mean_opacities = pd.read_table(
+            self.path + r"/HELIOS_iterative/mean_extinct.dat",
+            skiprows=2,
+            sep=r"\s+",
+            index_col=0,
+        )
+        rosseland_mean_opacities = helios_mean_opacities[["Ross_opac_T_lay", "Ross_opac_T_star"]]
+        rosseland_mean_opacities.rename(
+            columns = {
+                "Ross_opac_T_lay": "layer_temp_weighted",
+                "Ross_opac_T_star": "stellar_temp_weighted"
+            },
+            inplace=True
+        )
+        self.rosseland_mean_opacities = rosseland_mean_opacities
+
+        rosseland_mean_optdepth = helios_mean_opacities[["Ross_tau_T_lay", "Ross_tau_T_star"]]
+        rosseland_mean_optdepth.rename(
+            columns = {
+                "Ross_tau_T_lay": "layer_temp_weighted",
+                "Ross_tau_T_star": "stellar_temp_weighted"
+            },
+            inplace=True
+        )
+        self.rosseland_mean_optdepth = rosseland_mean_optdepth
+
+        # ----------- Planck mean opacities ------------- #
+        # TODO: units!
+        planck_mean_opacities = helios_mean_opacities[["Planck_opac_T_lay", "Planck_opac_T_star"]]
+        planck_mean_opacities.rename(
+            columns = {
+                "Planck_opac_T_lay": "layer_temp_weighted",
+                "Planck_opac_T_star": "stellar_temp_weighted"
+            },
+            inplace=True
+        )
+        self.planck_mean_opacities = planck_mean_opacities
+
+        planck_mean_optdepth = helios_mean_opacities[["Planck_tau_T_lay", "Planck_tau_T_star"]]
+        planck_mean_optdepth.rename(
+            columns = {
+                "Planck_tau_T_lay": "layer_temp_weighted",
+                "Planck_tau_T_star": "stellar_temp_weighted"
+            },
+            inplace=True
+        )
+        self.planck_mean_optdepth = planck_mean_optdepth
 
     def get_photospheric_pressurelevel(
         self,

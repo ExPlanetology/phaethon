@@ -115,7 +115,7 @@ if __name__ == "__main__":
         radius=1.88 * units.R_earth,
         bond_albedo=0.0,
         dilution_factor=2.0 / 3.0,
-        internal_temperature=0 * units.K,
+        intrinsic_temperature=0 * units.K,
     )
 
     # build a planet with fixed irradiation temperature, semi-major axis is automatically adjusted

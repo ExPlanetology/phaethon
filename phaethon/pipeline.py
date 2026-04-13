@@ -657,7 +657,7 @@ class PhaethonPipeline:
         keeper.R_star = keeper.fl_prec(self.planetary_system.star.radius.to("cm").value)
         keeper.T_star = keeper.fl_prec(self.planetary_system.star.t_eff.to("K").value)
         keeper.T_intern = float(
-            self.planetary_system.planet.internal_temperature.to("K").value
+            self.planetary_system.planet.intrinsic_temperature.to("K").value
         )
         keeper.f_factor = np.float64(self.planetary_system.planet.dilution_factor)
 

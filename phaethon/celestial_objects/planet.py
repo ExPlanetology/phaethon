@@ -57,15 +57,15 @@ class Planet:
     radius: AstropyUnit
     bond_albedo: float
     dilution_factor: float
-    internal_temperature: AstropyQuantity = 0.0 * units.Kelvin
+    intrinsic_temperature: AstropyQuantity = 0.0 * units.Kelvin
     grav: Optional[AstropyQuantity] = None
 
     def __post_init__(self):
         self.mass = verify_type(self.mass, target_unit=units.M_earth)
         self.radius = verify_type(self.radius, target_unit=units.R_earth)
         self.grav = const.G * self.mass.to("kg") / (self.radius.to("m") ** 2)
-        self.internal_temperature = verify_type(
-            self.internal_temperature, target_unit=units.K
+        self.intrinsic_temperature = verify_type(
+            self.intrinsic_temperature, target_unit=units.K
         )
 
     def get_info(self) -> dict:

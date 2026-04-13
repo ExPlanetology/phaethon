@@ -55,11 +55,11 @@ from phaethon.interfaces import (
 from phaethon.iterator import MeltTemperatureIterator, SingleIteration
 from phaethon.logger import file_logger
 
-DEFAULT_PARAM_FILE = (
-    importlib.resources.files("phaethon.data") / "standard_lavaplanet_params.dat"
+DEFAULT_CONFIG_FILE = (
+    importlib.resources.files("phaethon.data") / "default_config.dat"
 )
 """
-Default HELIOS parameters. Many of the default parameters will be overwritten by the pipeline
+Default HELIOS config. NOTE: Many of the default parameters will be overwritten by the pipeline
 below (mostly params related to planet, star and opacity species).
 """
 
@@ -217,7 +217,7 @@ class PhaethonPipeline:
 
     def run(
         self,
-        param_file: os.PathLike = DEFAULT_PARAM_FILE,
+        config_file: os.PathLike = DEFAULT_CONFIG_FILE,
         *,
         t_melt_init: Optional[float] = None,
         nvcc_kws: Optional[dict] = None,
@@ -229,7 +229,7 @@ class PhaethonPipeline:
 
         Parameters
         ----------
-            param_file : os.PathLike
+            config_file : os.PathLike
                 File containing the HELIOS parameters.
             t_abstol : float (optional)
                 ΔT allowed between t_melt and t_boa, in K.
@@ -270,7 +270,7 @@ class PhaethonPipeline:
             raise ValueError(f"`t_melt` must be > 0, is {self.t_melt} K")
 
         # initialise HELIOS
-        self._helios_setup(param_file=param_file, nvcc_kws=nvcc_kws)
+        self._helios_setup(config_file=config_file, nvcc_kws=nvcc_kws)
 
         # run the loop
         start: float = time.time()
@@ -361,7 +361,7 @@ class PhaethonPipeline:
     def single_run(
         self,
         *,
-        param_file: os.PathLike = DEFAULT_PARAM_FILE,
+        config_file: os.PathLike = DEFAULT_CONFIG_FILE,
         t_melt: float,
         nvcc_kws: Optional[dict] = None,
         logfile_name: str = "phaethon.log",
@@ -371,7 +371,7 @@ class PhaethonPipeline:
 
         Parameters
         ----------
-            param_file : os.PathLike
+            config_file : os.PathLike
                 File containing the HELIOS parameters.
             t_melt_init : Optional[float] (optional)
                 Optional starting temperature of the melt, in K.
@@ -388,7 +388,7 @@ class PhaethonPipeline:
         # set new iterator
         self.iterator = SingleIteration()
         self.run(
-            param_file, t_melt_init=t_melt, nvcc_kws=nvcc_kws, logfile_name=logfile_name
+            config_file, t_melt_init=t_melt, nvcc_kws=nvcc_kws, logfile_name=logfile_name
         )
 
         # reset iterator
@@ -509,16 +509,16 @@ class PhaethonPipeline:
 
     def _helios_setup(
         self,
-        param_file: str,
+        config_file: str,
         run_type: Literal["iterative", "post-processing"] = "iterative",
         nvcc_kws: dict = None,
     ) -> None:
         """
-        Sets up the HELIOS model parameters and reads the necessary input files.
+        Configures the HELIOS model from a config file and compiler arguments.
 
         Parameters
         ----------
-        param_file : str
+        config_file : str
             The path to the parameter file.
         run_type : str, optional
             The type of run to perform. Can be 'iterative' or 'post-processing'. Default is
@@ -540,7 +540,7 @@ class PhaethonPipeline:
 
         # Read input files and preliminary calculations
         self._reader.read_param_file_and_command_line(
-            param_file, self._keeper, self._fogger
+            config_file, self._keeper, self._fogger
         )
         self._reader.output_path = self.outdir
 

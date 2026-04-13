@@ -19,6 +19,7 @@
 """
 Main pipeline, streamlines the computation of the structure of an outgassed atmosphere.
 """
+
 import importlib
 import traceback
 import sys
@@ -342,7 +343,16 @@ class PhaethonPipeline:
             df["transm_depth"] = transm_depth.value * 1e6  # dimensionless; to ppm
             df["fpfs"] = fpfs.value * 1e6  # dimensionless; to ppm
             df["planet_flux"] = planet_flux.to("erg / (s * cm3)").value
-            df.to_csv(self.outdir + "postradtrans.csv", index=None)
+            with open(self.outdir + "postradtrans.csv", "w") as postrad_outfile:
+                postrad_outfile.write(
+                    f"# Transmission and emission spectra computed by the post-radtrans routine.\n"
+                )
+                postrad_outfile.write(f"# wavl [µm]\n")
+                postrad_outfile.write(f"# transm_radius [earth radii]\n")
+                postrad_outfile.write(f"# transm_depth [ppm]\n")
+                postrad_outfile.write(f"# fpfs [ppm]\n")
+                postrad_outfile.write(f"# planet_flux [erg / (s * cm3)]\n")
+                df.to_csv(postrad_outfile, index=None)
 
         else:
             if logger is not None:
@@ -377,11 +387,12 @@ class PhaethonPipeline:
 
         # set new iterator
         self.iterator = SingleIteration()
-        self.run(param_file, t_melt_init=t_melt, nvcc_kws=nvcc_kws, logfile_name=logfile_name)
+        self.run(
+            param_file, t_melt_init=t_melt, nvcc_kws=nvcc_kws, logfile_name=logfile_name
+        )
 
         # reset iterator
         self.iterator = old_iterator
-
 
     # ============================================================================================
     # SEMI-PRIVATE METHODS

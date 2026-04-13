@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Optional, Literal, Dict, Union
 import numpy as np
 import pandas as pd
@@ -509,7 +510,7 @@ class PhaethonPipeline:
 
     def _helios_setup(
         self,
-        config_file: str,
+        config_file: str | os.PathLike,
         run_type: Literal["iterative", "post-processing"] = "iterative",
         nvcc_kws: dict = None,
     ) -> None:
@@ -540,7 +541,7 @@ class PhaethonPipeline:
 
         # Read input files and preliminary calculations
         self._reader.read_param_file_and_command_line(
-            config_file, self._keeper, self._fogger
+            Path(config_file), self._keeper, self._fogger
         )
         self._reader.output_path = self.outdir
 

@@ -220,7 +220,7 @@ class PhaethonResult:
         # -------------- transmissivity ------------ #
         self.transmissivity = (
             pd.read_table(
-                self.path / r"/HELIOS_iterative/transmission.dat",
+                self.path / r"HELIOS_iterative/transmission.dat",
                 skiprows=1,
                 sep=r"\s+",
                 index_col=0,
@@ -238,7 +238,7 @@ class PhaethonResult:
         # -------------- optical depth --------------- #
         self.optical_depth = (
             pd.read_table(
-                self.path / r"/HELIOS_iterative/optdepth.dat",
+                self.path / r"HELIOS_iterative/optdepth.dat",
                 skiprows=1,
                 sep=r"\s+",
                 index_col=0,
@@ -252,7 +252,7 @@ class PhaethonResult:
         # ------------ contribution function -----------#
         self.contribution = (
             pd.read_table(
-                self.path / r"/HELIOS_iterative/contribution.dat",
+                self.path / r"HELIOS_iterative/contribution.dat",
                 skiprows=1,
                 sep=r"\s+",
                 index_col=0,
@@ -275,7 +275,7 @@ class PhaethonResult:
         # TODO: units!
         pd.options.mode.chained_assignment = None  # default='warn'; avoid warnings when renaming 
         helios_mean_opacities = pd.read_table(
-            self.path / r"/HELIOS_iterative/mean_extinct.dat",
+            self.path / r"HELIOS_iterative/mean_extinct.dat",
             skiprows=2,
             sep=r"\s+",
             index_col=0,

@@ -26,6 +26,7 @@ import os
 import json
 import logging
 import warnings
+from pathlib import Path
 
 import h5py
 import numpy as np
@@ -109,12 +110,12 @@ class PhaethonResult:
         """
         Load a phaethon result located at 'path'.
         """
-        self.path = path
+        self.path = Path(path)
         self.star_basepath = star_basepath
         self.load_star = load_star
 
         # ------- load spectra ------#
-        filename = self.path + r"HELIOS_iterative/TOA_flux_eclipse.dat"
+        filename = self.path / r"HELIOS_iterative/TOA_flux_eclipse.dat"
         df = pd.read_csv(filename, skiprows=2, sep=r"\s+")
         self.wavl = df[r"cent_lambda[um]"].to_numpy() * units.micron
         self.spectral_exitance_planet = df[r"F_up_at_TOA"].to_numpy() * (
@@ -124,7 +125,7 @@ class PhaethonResult:
         self.t_bright = self.brightness_temp() * units.K
 
         # ------ load pressure-temperature profile -------#
-        filename = self.path + r"HELIOS_iterative/tp.dat"
+        filename = self.path / r"HELIOS_iterative/tp.dat"
         df = pd.read_csv(filename, skiprows=1, sep=r"\s+")
         self.temperature = df[r"temp.[K]"].to_numpy() * units.K
         self.pressure = df[r"press.[10^-6bar]"].to_numpy() / 1e6 * units.bar
@@ -132,7 +133,7 @@ class PhaethonResult:
 
         # ------- gas properties inferred by HELIOS ----- #
         df = pd.read_csv(
-            self.path + r"HELIOS_iterative/colmass_mu_cp_kappa_entropy.dat",
+            self.path / r"HELIOS_iterative/colmass_mu_cp_kappa_entropy.dat",
             sep="\s+",
             skiprows=2,
             index_col=0,
@@ -153,7 +154,7 @@ class PhaethonResult:
         )  # erg mol^-1 K^-1
 
         # ------ load chemistry -----#
-        filename = self.path + r"chem_profile.dat"
+        filename = self.path / r"chem_profile.dat"
         self.chem = pd.read_csv(filename, sep=r"\s+")
         self.chem = self.chem.rename(
             columns={
@@ -171,7 +172,7 @@ class PhaethonResult:
         )
 
         # ------------ condensates ----------- #
-        filename = self.path + r"cond_chem_profile.dat"
+        filename = self.path / r"cond_chem_profile.dat"
         if os.path.isfile(filename):
             self.cond = pd.read_csv(filename, sep=r"\s+")
             self.cond = self.cond.rename(
@@ -194,7 +195,7 @@ class PhaethonResult:
             self.elem_condfrac = self.cond[_elem_names]
 
         # ------------ planet params ------------#
-        with open(self.path + r"metadata.json", encoding="utf-8") as f:
+        with open(self.path / r"metadata.json", encoding="utf-8") as f:
             params = json.load(f)
 
         self.planet_params = params[r"planet"]
@@ -219,7 +220,7 @@ class PhaethonResult:
         # -------------- transmissivity ------------ #
         self.transmissivity = (
             pd.read_table(
-                self.path + r"/HELIOS_iterative/transmission.dat",
+                self.path / r"/HELIOS_iterative/transmission.dat",
                 skiprows=1,
                 sep=r"\s+",
                 index_col=0,
@@ -237,7 +238,7 @@ class PhaethonResult:
         # -------------- optical depth --------------- #
         self.optical_depth = (
             pd.read_table(
-                self.path + r"/HELIOS_iterative/optdepth.dat",
+                self.path / r"/HELIOS_iterative/optdepth.dat",
                 skiprows=1,
                 sep=r"\s+",
                 index_col=0,
@@ -251,7 +252,7 @@ class PhaethonResult:
         # ------------ contribution function -----------#
         self.contribution = (
             pd.read_table(
-                self.path + r"/HELIOS_iterative/contribution.dat",
+                self.path / r"/HELIOS_iterative/contribution.dat",
                 skiprows=1,
                 sep=r"\s+",
                 index_col=0,
@@ -274,7 +275,7 @@ class PhaethonResult:
         # TODO: units!
         pd.options.mode.chained_assignment = None  # default='warn'; avoid warnings when renaming 
         helios_mean_opacities = pd.read_table(
-            self.path + r"/HELIOS_iterative/mean_extinct.dat",
+            self.path / r"/HELIOS_iterative/mean_extinct.dat",
             skiprows=2,
             sep=r"\s+",
             index_col=0,

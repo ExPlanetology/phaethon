@@ -37,6 +37,7 @@ import astropy.constants as ac
 from scipy.interpolate import interp1d
 from molmass import Formula
 import numpy as np
+import pandas as pd
 import numpy.typing as npt
 
 from petitRADTRANS.radtrans import Radtrans
@@ -305,6 +306,41 @@ class PetitRadtransCoupler(PostRadtransProtocol):
 
         # update star as well
         self.set_phoenix_star(t_eff=self.phaethon_result.star_params["t_eff"])
+
+    def update_gaschem(
+        self,
+        gaschem_df: pd.DataFrame,
+        **kwargs,
+    ) -> None:
+        """
+        Set the atmospheric conditions from a PhaethonResult (temperature-pressure structure,
+        mean molecular weight, speciation with altitude, etc.).
+
+        Parameters
+        ----------
+            phaethon_result : PhaethonResult
+                Result from a phaethon simulation.
+        """
+
+        if not self.__atmosphere_is_init:
+            raise ValueError("Atmosphere not yet set, please run `set_atmo` before udating chemistry.")
+
+        # assert that pressure does not change
+        new_pressure = gaschem_df["#p(bar)"]
+        old_pressure = self.phaethon_result.pressure.to("bar").value
+        if not np.allclose(new_pressure, old_pressure):
+            raise ValueError("Pressure profiles are not identical!")
+
+        # chemistry profiles in massfracs (because pRT ...)
+        self.massfrac_profiles = {}
+        for specimen in self.line_species + self.rayleigh_species:
+            self.massfrac_profiles[specimen.formula] = (
+                gaschem_df[specimen.fastchem_name]
+                * specimen.atom_mass
+                / gaschem_df["m(u)"].to_numpy()[::-1]
+            ).to_numpy()
+        self.mmw_profile = gaschem_df["m(u)"].to_numpy()[::-1]
+
 
     def __is_atmosphere_init(self) -> None:
         """

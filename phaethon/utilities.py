@@ -26,6 +26,31 @@ from molmass import Formula
 import signal
 
 
+def sanitise_formula(formula: str) -> Tuple[str, str]:
+    # extract formula; FastChem has suffixes to formulas which we want to avoid at this stage.
+    sanitised_formula = formula
+    suffix = None
+    if "_" in formula:
+        sanitised_formula, suffix = formula.split("_")
+    if formula.endswith("trans"):
+        sanitised_formula = formula[:-5]
+        suffix = "trans"
+    if formula.endswith("cis"):
+        sanitised_formula = formula[:-4]
+        suffix = "cis"
+    if "(s)" in formula:
+        sanitised_formula, _ = formula.split("(s)")
+        suffix = "s"
+    if "(s,l)" in formula:
+        sanitised_formula, _ = formula.split("(s,l)")
+        suffix = "s,l"
+    if "(l)" in formula:
+        sanitised_formula, _ = formula.split("(l)")
+        suffix = "l"
+
+    return sanitised_formula, suffix
+
+
 def formula_to_hill(formula: str) -> str:
     """
     Converts a chemical formula (e.g. SiO) into Hill's notation (O1Si1) for FastChem.
@@ -55,24 +80,7 @@ def formula_to_latex(formula: str) -> str:
         return "e-"
 
     # extract formula; FastChem has suffixes to formulas which we want to avoid at this stage.
-    suffix = None
-    if "_" in formula:
-        formula, suffix = formula.split("_")
-    if formula.endswith("trans"):
-        formula = formula[:-5]
-        suffix = "trans"
-    if formula.endswith("cis"):
-        formula = formula[:-4]
-        suffix = "cis"
-    if "(s)" in formula:
-        formula, _ = formula.split("(s)")
-        suffix = "s"
-    if "(s,l)" in formula:
-        formula, _ = formula.split("(s,l)")
-        suffix = "s,l"
-    if "(l)" in formula:
-        formula, _ = formula.split("(l)")
-        suffix = "l"
+    formula, suffix = sanitise_formula(formula)
 
     # extract stoichiometry
     comp: Dict[str, Tuple[float, float, float]] = (

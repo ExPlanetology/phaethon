@@ -24,7 +24,7 @@ by HELIOS/phaethon.
 from io import StringIO
 import sys
 from contextlib import contextmanager
-from typing import Union, Callable, Optional, List, Tuple, Self, Literal
+from typing import Union, Callable, Optional, List, Tuple, Self, Literal, Dict
 from dataclasses import dataclass
 import warnings
 import logging
@@ -34,11 +34,11 @@ import logging
 from astropy import units
 from astropy.units import Quantity, Unit, UnitConversionError
 import astropy.constants as ac
-from scipy.interpolate import interp1d
 from molmass import Formula
 import numpy as np
-import pandas as pd
 import numpy.typing as npt
+import pandas as pd
+from scipy.interpolate import interp1d
 
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS import physical_constants as cst
@@ -47,28 +47,34 @@ from petitRADTRANS.plotlib import plot_opacity_contributions
 
 from phaethon.analyse import PhaethonResult
 from phaethon.interfaces import PostRadtransProtocol
-from phaethon.utilities import formula_to_hill
+from phaethon.utilities import formula_to_hill, sanitise_formula
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class GasSpeciesNameTranslator:
+class AtmosphereSpecies:
     """
-    Relates a species to its name in FastChem.
-
-    Parameters
-    ----------
-        formula : str
-            Formula of gas species.
+    Relates a species to its name in FastChem (which uses Hill notation).
     """
 
-    formula: str
+    formula: Formula
+    """
+    Chemical formula of species.
+    """
+
+    prt_name: str
+    """
+    `petitRADTRANS` name of species.
+    """
+
     fastchem_name: str
-    atom_mass: float
+    """
+    FastChem equivalent name, in Hill notation (e.g., O1Si1 for SiO).
+    """
 
     @classmethod
-    def new(cls, formula: str) -> Self:
+    def new_gas(cls, formula: str) -> Self:
         """
         Create a new species that relates a chemical species to names in petitRADTRANS and in
         FastChem.
@@ -78,10 +84,31 @@ class GasSpeciesNameTranslator:
             formula : str
                 Formula of gas species.
         """
+        clean_formula, _ = sanitise_formula(formula)
+
         return cls(
-            formula=formula,
+            formula=Formula(clean_formula),
+            prt_name=formula,
             fastchem_name=formula_to_hill(formula),
-            atom_mass=Formula(formula).mass,
+        )
+
+    @classmethod
+    def new_condensate(cls, fastchem_name: str, prt_name: str) -> Self:
+        """
+        Create a new species that relates a chemical species to names in petitRADTRANS and in
+        FastChem.
+
+        Parameters
+        ----------
+            formula : str
+                Formula of gas species.
+        """
+        clean_formula, _ = sanitise_formula(fastchem_name)
+
+        return cls(
+            formula=Formula(clean_formula),
+            prt_name=prt_name,
+            fastchem_name=fastchem_name,
         )
 
 
@@ -89,8 +116,8 @@ class GasSpeciesNameTranslator:
 @contextmanager
 def catch_petitRADTRANS_spam():
     """
-    Context manager for absorbing warnings/prints raised by petitRADTRANS, which directly
-    go to stdout. However, phaethon should redirect them to the logger instead.
+    Context manager for absorbing warnings/prints raised by petitRADTRANS, which would otherwise
+    go to stdout. Redirects them to the logger instead.
     """
     out = StringIO()
     sys.stdout = out
@@ -147,16 +174,64 @@ def to_astropy_unit(value: float | int | Quantity, target_unit: Unit) -> Quantit
     return value
 
 
+def gas_and_clouds_massfrac(
+    gases_molefracs: pd.DataFrame,
+    gas_number_densities: pd.Series | np.ndarray,
+    condensate_number_densities: pd.DataFrame,
+    ignore_condensates: bool = False,
+) -> pd.DataFrame:
+    """
+    Parameters
+    ----------
+        gases_molefracs : pd.DataFrame
+            Molar fractions of gas species. Assumes the data frame has exclusively molar fractions
+            on its columns.
+    """
+
+    # gas masses
+    gas_masses_df = pd.DataFrame()
+    for species in gases_molefracs.drop("e-", axis=1, errors="ignore").columns:
+        gas_species_formula, _ = sanitise_formula(species)
+        gas_masses_df[species] = (
+            gases_molefracs[species]
+            * gas_number_densities
+            * Formula(gas_species_formula).mass
+        )
+
+    # condensate masses
+    condensate_masses_df = pd.DataFrame()
+    for cond in condensate_number_densities.columns:
+        condensate_formula, _ = sanitise_formula(cond)
+        condensate_masses_df[cond] = (
+            condensate_number_densities[cond] * Formula(condensate_formula).mass
+        )
+        if ignore_condensates:
+            condensate_masses_df[cond] *= 0.0
+
+    # gas, cloud and total mass
+    gas_total_mass: pd.Series = gas_masses_df.sum(axis=1)
+    cloud_total_mass = condensate_masses_df.sum(axis=1)
+    total_mass = gas_total_mass + cloud_total_mass
+
+    # massfrac
+    gas_massfracs = gas_masses_df.divide(total_mass, axis=0)
+    condensate_massfracs = condensate_masses_df.divide(total_mass, axis=0)
+
+    all_species_massfracs = pd.concat([gas_massfracs, condensate_massfracs], axis=1)
+
+    return all_species_massfracs
+
+
 class PetitRadtransCoupler(PostRadtransProtocol):
     """
     Makes using a Phaethon output as input for petitRADTRANS easy.
 
     Parameters
     ----------
-        line_species : List[GasSpeciesNameTranslator
-            List of `GasSpeciesNameTranslator` objects. See
-            `phaethon.petitradtrans_coupling.GasSpeciesNameTranslator`.
-        wlen_bords_micron : Tuple[float, float]
+        line_species : List[AtmosphereSpecies
+            List of `AtmosphereSpecies` objects. See
+            `phaethon.petitradtrans_coupling.AtmosphereSpecies`.
+        wavelength_boundaries : Tuple[float, float]
             Wavelengths between which the spectrum is evaluated.
         teff_star : float
             Effective temperature of the host star.
@@ -172,42 +247,49 @@ class PetitRadtransCoupler(PostRadtransProtocol):
     radtrans: Radtrans
     phaethon_result: PhaethonResult
 
-    line_species: list
+    line_species: List[AtmosphereSpecies]
     p_profile: np.ndarray
     t_profile: np.ndarray
-    massfrac_profiles: dict
+    gas_and_clouds_massfrac_profiles: Optional[Dict[str, np.ndarray]]
+    """
+    Massfractions of gases and clouds in the atmosphere, combined. Only used when 'cloud_species'
+    is not None.
+    """
+
     mmw_profile: np.ndarray
     __atmosphere_is_init: bool
 
-    wlen_bords_micron: Tuple[float | int, float | int]
-    gas_continuum_contributors: list
-    rayleigh_species: list
-    additional_outputs: dict
+    wavelength_boundaries: Tuple[float | int, float | int]
+    gas_continuum_contributors: List[str]
+    rayleigh_species: List[str]
+    additional_outputs: Dict[str, np.ndarray]
+    cloud_species: Optional[List[AtmosphereSpecies]]
 
     star_spec_fit: Optional[Callable]
 
     def __init__(
         self,
         line_species: List[str],
-        wlen_bords_micron: Tuple[float | int, float | int],
+        wavelength_boundaries: Tuple[float | int, float | int],
         gas_continuum_contributors: Optional[List[str]] = None,
         rayleigh_species: Optional[List[str]] = None,
+        cloud_species: Optional[List[str]] = None,
         **kwargs,
     ) -> None:
 
-        self.wlen_bords_micron = wlen_bords_micron
+        self.wavelength_boundaries = wavelength_boundaries
         self.line_species = [
-            GasSpeciesNameTranslator.new(species) for species in line_species
+            AtmosphereSpecies.new_gas(species) for species in line_species
         ]
-        if rayleigh_species is None:
-            rayleigh_species = []
-        self.rayleigh_species = [
-            GasSpeciesNameTranslator.new(species) for species in rayleigh_species
-        ]
-
-        if gas_continuum_contributors is None:
-            gas_continuum_contributors = []
+        self.rayleigh_species = (
+            [AtmosphereSpecies.new_gas(species) for species in rayleigh_species]
+            if rayleigh_species is not None
+            else []
+        )
         self.gas_continuum_contributors = gas_continuum_contributors
+
+        # set cloud species for pRT
+        self.cloud_species = cloud_species if cloud_species is not None else []
 
         self.additional_outputs = {}
 
@@ -221,12 +303,17 @@ class PetitRadtransCoupler(PostRadtransProtocol):
             warnings.simplefilter("ignore")
 
             self.radtrans = Radtrans(
-                line_species=[specimen.formula for specimen in self.line_species],
-                wavelength_boundaries=self.wlen_bords_micron,
+                line_species=[specimen.prt_name for specimen in self.line_species],
+                wavelength_boundaries=self.wavelength_boundaries,
                 gas_continuum_contributors=self.gas_continuum_contributors,
                 rayleigh_species=(
-                    [specimen.formula for specimen in self.rayleigh_species]
-                    if len(self.rayleigh_species) > 0
+                    [specimen.prt_name for specimen in self.rayleigh_species]
+                    if self.rayleigh_species is not None
+                    else None
+                ),
+                cloud_species=(
+                    [cloud.prt_name for cloud in self.cloud_species]
+                    if self.cloud_species is not None
                     else None
                 ),
                 **kwargs,
@@ -266,7 +353,6 @@ class PetitRadtransCoupler(PostRadtransProtocol):
     def set_atmo(
         self,
         phaethon_result: PhaethonResult,
-        **kwargs,
     ) -> None:
         """
         Set the atmospheric conditions from a PhaethonResult (temperature-pressure structure,
@@ -285,13 +371,21 @@ class PetitRadtransCoupler(PostRadtransProtocol):
         self.t_profile = self.phaethon_result.temperature.to("K").value[::-1]
 
         # chemistry profiles in massfracs (because pRT ...)
-        self.massfrac_profiles = {}
-        for specimen in self.line_species + self.rayleigh_species:
-            self.massfrac_profiles[specimen.formula] = (
-                self.phaethon_result.chem[specimen.fastchem_name]
-                * specimen.atom_mass
-                / self.phaethon_result.chem["m(u)"].to_numpy()[::-1]
-            ).to_numpy()
+        species_massfracs = gas_and_clouds_massfrac(
+            gases_molefracs=self.phaethon_result.chem[self.phaethon_result.species],
+            gas_number_densities=self.phaethon_result.chem["m(u)"],
+            condensate_number_densities=self.phaethon_result.cond[
+                self.phaethon_result.condensates
+            ],
+            ignore_condensates=len(self.cloud_species) == 0,
+        )
+        self.gas_and_clouds_massfrac_profiles = {}
+        for species in self.line_species + self.rayleigh_species + self.cloud_species:
+            self.gas_and_clouds_massfrac_profiles[species.prt_name] = species_massfracs[
+                species.fastchem_name
+            ].to_numpy()[::-1]
+
+        # Mean molecular weight
         self.mmw_profile = self.phaethon_result.chem["m(u)"].to_numpy()[::-1]
 
         # update pressure profile; unfortunately, this means we have to overwrite _pressure,
@@ -310,20 +404,22 @@ class PetitRadtransCoupler(PostRadtransProtocol):
     def update_gaschem(
         self,
         gaschem_df: pd.DataFrame,
-        **kwargs,
+        condensate_df: Optional[pd.DataFrame] = None,
     ) -> None:
         """
-        Set the atmospheric conditions from a PhaethonResult (temperature-pressure structure,
+        Update the atmospheric composition from a FastChem result (temperature-pressure structure,
         mean molecular weight, speciation with altitude, etc.).
 
         Parameters
         ----------
-            phaethon_result : PhaethonResult
-                Result from a phaethon simulation.
+            gaschem_df : pd.DataFrame
+                pandas DataFrame containing the results of FastChem. #TODO: elaborate
         """
 
         if not self.__atmosphere_is_init:
-            raise ValueError("Atmosphere not yet set, please run `set_atmo` before udating chemistry.")
+            raise ValueError(
+                "Atmosphere not yet set, please run `set_atmo` before udating chemistry."
+            )
 
         # assert that pressure does not change
         new_pressure = gaschem_df["#p(bar)"]
@@ -332,15 +428,32 @@ class PetitRadtransCoupler(PostRadtransProtocol):
             raise ValueError("Pressure profiles are not identical!")
 
         # chemistry profiles in massfracs (because pRT ...)
-        self.massfrac_profiles = {}
-        for specimen in self.line_species + self.rayleigh_species:
-            self.massfrac_profiles[specimen.formula] = (
-                gaschem_df[specimen.fastchem_name]
-                * specimen.atom_mass
-                / gaschem_df["m(u)"].to_numpy()[::-1]
-            ).to_numpy()
-        self.mmw_profile = gaschem_df["m(u)"].to_numpy()[::-1]
+        gas_species = gaschem_df.drop(
+            [r"#p(bar)", r"T(K)", r"n_<tot>(cm-3)", r"n_g(cm-3)", r"m(u)", r"e-"],
+            axis=1,
+        ).columns
+        condensates = []
+        for cond in condensate_df.columns:
+            if (
+                cond.endswith(r"(s,l)")
+                or cond.endswith(r"(s)")
+                or cond.endswith(r"(l)")
+            ):
+                condensates.append(cond)
+        species_massfracs = gas_and_clouds_massfrac(
+            gases_molefracs=gaschem_df[gas_species],
+            gas_number_densities=gaschem_df["m(u)"],
+            condensate_number_densities=condensate_df[condensates],
+            ignore_condensates=len(self.cloud_species) == 0,
+        )
+        self.gas_and_clouds_massfrac_profiles = {}
+        for species in self.line_species + self.rayleigh_species + self.cloud_species:
+            self.gas_and_clouds_massfrac_profiles[species.prt_name] = species_massfracs[
+                species.fastchem_name
+            ].to_numpy()[::-1]
 
+        # Mean molecular weight
+        self.mmw_profile = gaschem_df["m(u)"].to_numpy()[::-1]
 
     def __is_atmosphere_init(self) -> None:
         """
@@ -405,7 +518,7 @@ class PetitRadtransCoupler(PostRadtransProtocol):
         wavl_cm, planet_spectral_emittance, self.additional_outputs = (
             self.radtrans.calculate_flux(
                 temperatures=self.t_profile,
-                mass_fractions=self.massfrac_profiles,
+                mass_fractions=self.gas_and_clouds_massfrac_profiles,
                 mean_molar_masses=self.mmw_profile,
                 reference_gravity=_reference_gravity.to("cm / s2").value,
                 planet_radius=_planet_radius.to("cm").value,
@@ -581,7 +694,7 @@ class PetitRadtransCoupler(PostRadtransProtocol):
         wavl_cm, transm_rad_in_cm, self.additional_outputs = (
             self.radtrans.calculate_transit_radii(
                 temperatures=self.t_profile,
-                mass_fractions=self.massfrac_profiles,
+                mass_fractions=self.gas_and_clouds_massfrac_profiles,
                 mean_molar_masses=self.mmw_profile,
                 reference_gravity=_reference_gravity.to("cm / s2").value,
                 planet_radius=_planet_radius.to("cm").value,
@@ -723,14 +836,26 @@ class PetitRadtransCoupler(PostRadtransProtocol):
         # "surface" gravity (i.e., gravitational acceleration at reference pressure)
         _reference_gravity = (ac.G * _planet_mass / (_planet_radius**2)).decompose()
 
-        plot_opacity_contributions(
-            self.radtrans,
-            mode=mode,
-            mass_fractions=self.massfrac_profiles,
-            mean_molar_masses=self.mmw_profile,
-            reference_gravity=_reference_gravity.to("cm / s2").value,
-            planet_radius=_planet_radius.to("cm").value,
-            reference_pressure=_ref_pressure.to("bar").value,
-            temperatures=self.t_profile,
-            **kwargs,
-        )
+        if mode == "transmission":
+            plot_opacity_contributions(
+                self.radtrans,
+                mode=mode,
+                mass_fractions=self.gas_and_clouds_massfrac_profiles,
+                mean_molar_masses=self.mmw_profile,
+                reference_gravity=_reference_gravity.to("cm / s2").value,
+                planet_radius=_planet_radius.to("cm").value,
+                reference_pressure=_ref_pressure.to("bar").value,
+                temperatures=self.t_profile,
+                **kwargs,
+            )
+        else:
+            plot_opacity_contributions(
+                self.radtrans,
+                mode=mode,
+                mass_fractions=self.gas_and_clouds_massfrac_profiles,
+                mean_molar_masses=self.mmw_profile,
+                reference_gravity=_reference_gravity.to("cm / s2").value,
+                planet_radius=_planet_radius.to("cm").value,
+                temperatures=self.t_profile,
+                **kwargs,
+            )

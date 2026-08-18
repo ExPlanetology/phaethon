@@ -149,9 +149,9 @@ class PhaethonResult:
         )
         self._helios_mmw = df["mmw"] * units.g / units.mol
         self.adiabatic_coefficient = df["adiabat"]
-        self.heat_cap = (
-            df["heat cap."] * units.erg / units.mol / units.K
-        )  # erg mol^-1 K^-1
+        # self.heat_cap = (
+        #     df["heat cap."] * units.erg / units.mol / units.K
+        # )  # erg mol^-1 K^-1
 
         # ------ load chemistry -----#
         filename = self.path / r"chem_profile.dat"
